@@ -21,6 +21,7 @@ const STATUS_CONFIG = {
   "고배당":      { bg: "bg-emerald-500/20", text: "text-emerald-300" },
   "낮음":        { bg: "bg-red-500/20",     text: "text-red-300" },
   "안전":        { bg: "bg-emerald-500/20", text: "text-emerald-300" },
+  "매우 안전":   { bg: "bg-emerald-500/20", text: "text-emerald-300" },
   "위험":        { bg: "bg-red-500/20",     text: "text-red-300" },
   "주의":        { bg: "bg-amber-500/20",   text: "text-amber-300" },
   "금융업 예외": { bg: "bg-blue-500/20",    text: "text-blue-300" },
@@ -43,7 +44,7 @@ function ValueGauge({ score, grade }) {
 
   const markers = [
     { score: 50, label: "C", color: "#fbbf24" },
-    { score: 65, label: "B", color: "#60a5fa" },
+    { score: 70, label: "B", color: "#60a5fa" },
     { score: 80, label: "A", color: "#34d399" },
     { score: 90, label: "S", color: "#a78bfa" },
   ];
@@ -142,6 +143,7 @@ function MetricCard({ label, value, unit = "", highlight = false, status = null 
 
 function DebtCard({ value, grade }) {
   const colorMap = {
+    "매우 안전":   { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-300" },
     "안전":        { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-300" },
     "양호":        { bg: "bg-blue-500/10",    border: "border-blue-500/30",    text: "text-blue-300" },
     "주의":        { bg: "bg-amber-500/10",   border: "border-amber-500/30",   text: "text-amber-300" },
@@ -286,7 +288,6 @@ function DividendSimulator({ dividendYield }) {
   );
 }
 
-// ── 랭킹 페이지 ──
 function RankingPage({ onSelectTicker }) {
   const [rankings, setRankings] = useState([]);
   const [lastScan, setLastScan] = useState(null);
@@ -305,15 +306,13 @@ function RankingPage({ onSelectTicker }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-white font-black text-xl">🏆 우량주 랭킹</h2>
-          <p className="text-white/30 text-xs mt-1">
-            {lastScan
-              ? `${lastScan.scanned_at} 기준 · ${lastScan.total_scanned}개 분석 · ${lastScan.total_qualified}개 선정`
-              : "데이터 로딩 중..."}
-          </p>
-        </div>
+      <div>
+        <h2 className="text-white font-black text-xl">🏆 우량주 랭킹</h2>
+        <p className="text-white/30 text-xs mt-1">
+          {lastScan
+            ? `${lastScan.scanned_at} 기준 · ${lastScan.total_scanned}개 분석 · ${lastScan.total_qualified}개 선정`
+            : "데이터 로딩 중..."}
+        </p>
       </div>
 
       {loading ? (
@@ -330,14 +329,11 @@ function RankingPage({ onSelectTicker }) {
             return (
               <div key={r.ticker}
                 onClick={() => onSelectTicker(r.ticker)}
-                className={`p-4 rounded-2xl border ${cfg.border} bg-white/5 cursor-pointer active:scale-98 transition-all hover:bg-white/10`}>
+                className={`p-4 rounded-2xl border ${cfg.border} bg-white/5 cursor-pointer transition-all hover:bg-white/10`}>
                 <div className="flex items-center gap-3">
-                  {/* 순위 */}
-                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0">
                     <span className="text-white/60 text-xs font-bold">{i + 1}</span>
                   </div>
-
-                  {/* 종목 정보 */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-white font-bold text-sm truncate">{r.name}</p>
@@ -347,15 +343,11 @@ function RankingPage({ onSelectTicker }) {
                     </div>
                     <p className="text-white/30 text-xs mt-0.5">{r.ticker} · {r.sector}</p>
                   </div>
-
-                  {/* 점수 */}
                   <div className="text-right shrink-0">
                     <p className={`text-2xl font-black ${cfg.text}`}>{r.score}</p>
                     <p className="text-white/20 text-xs">/ 100</p>
                   </div>
                 </div>
-
-                {/* 핵심 지표 */}
                 <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-white/10">
                   <div className="text-center">
                     <p className="text-white/30 text-xs">PER</p>
@@ -379,15 +371,11 @@ function RankingPage({ onSelectTicker }) {
           })}
         </div>
       )}
-
-      <p className="text-white/15 text-xs text-center">
-        매일 새벽 2시 자동 업데이트 · 클릭하면 상세 분석
-      </p>
+      <p className="text-white/15 text-xs text-center">매일 새벽 2시 자동 업데이트 · 클릭하면 상세 분석</p>
     </div>
   );
 }
 
-// ── 메인 앱 ──
 export default function App() {
   const [tab,     setTab]     = useState("screener");
   const [ticker,  setTicker]  = useState("");
@@ -433,7 +421,6 @@ export default function App() {
       style={{ background: "radial-gradient(ellipse at 20% 50%, #0f172a 0%, #020617 60%), radial-gradient(ellipse at 80% 20%, #1e1b4b 0%, transparent 50%)" }}>
       <div className="max-w-md mx-auto px-4 py-8 pb-24">
 
-        {/* 헤더 */}
         <div className="mb-6">
           <p className="text-white/30 text-xs tracking-widest uppercase mb-2">📈 Value Screener</p>
           <h1 className="text-3xl font-black leading-tight">
@@ -444,7 +431,6 @@ export default function App() {
           </h1>
         </div>
 
-        {/* 탭 */}
         <div className="flex gap-2 mb-6 p-1 rounded-2xl bg-white/5 border border-white/10">
           <button onClick={() => setTab("screener")}
             className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${tab === "screener" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"}`}>
@@ -456,7 +442,6 @@ export default function App() {
           </button>
         </div>
 
-        {/* 종목 분석 탭 */}
         {tab === "screener" && (
           <>
             <div className="relative mb-2">
@@ -492,6 +477,7 @@ export default function App() {
 
             {result && (
               <div className="space-y-4" style={{ animation: "fadeIn 0.5s ease-out" }}>
+
                 <div className={`p-5 rounded-2xl border ${cfg.border} bg-gradient-to-br ${cfg.bg}`}>
                   <div className="flex justify-between items-start">
                     <div>
@@ -522,9 +508,9 @@ export default function App() {
 
                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
                   <h3 className="text-white/40 text-xs tracking-widest uppercase mb-4">카테고리별 점수</h3>
-                  <ScoreBar label="🛡️ 안전마진 & 자본 효율성" score={result.categories.a.total} max={35} color="#60a5fa" />
-                  <ScoreBar label="🤝 주주환원 의지"           score={result.categories.b.total} max={35} color="#34d399" />
-                  <ScoreBar label="🚀 비즈니스 퀄리티"         score={result.categories.c.total} max={30} color="#a78bfa" />
+                  <ScoreBar label="🛡️ 가치 평가"    score={result.categories.a.total} max={32} color="#60a5fa" />
+                  <ScoreBar label="🤝 주주환원"      score={result.categories.b.total} max={41} color="#34d399" />
+                  <ScoreBar label="🚀 성장 & 경쟁력" score={result.categories.c.total} max={27} color="#a78bfa" />
                 </div>
 
                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
@@ -532,7 +518,7 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-3">
                     <MetricCard label="PER"       value={km.per}            status={km.per_status} />
                     <MetricCard label="PBR"       value={km.pbr}            status={km.pbr_status} />
-                    <MetricCard label="ROE"       value={km.roe}  unit="%"  status={km.roe_status} highlight />
+                    <MetricCard label="ROE"       value={km.roe}  unit="%"  highlight />
                     <MetricCard label="배당수익률" value={km.dividend_yield} unit="%" status={km.dy_status} highlight />
                     <div className="col-span-2">
                       <DebtCard value={km.debt_to_equity} grade={km.debt_grade} />
@@ -560,13 +546,11 @@ export default function App() {
           </>
         )}
 
-        {/* 랭킹 탭 */}
         {tab === "ranking" && (
           <RankingPage onSelectTicker={(code) => { setTicker(code); analyze(code); }} />
         )}
       </div>
 
-      {/* 하단 탭바 */}
       <div className="fixed bottom-0 left-0 right-0 z-50"
         style={{ background: "rgba(2,6,23,0.95)", backdropFilter: "blur(20px)", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
         <div className="max-w-md mx-auto flex">

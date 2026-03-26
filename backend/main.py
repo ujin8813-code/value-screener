@@ -23,7 +23,6 @@ DATABASE_URL = os.environ.get(
     "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@crossover.proxy.rlwy.net:36008/railway"
 )
 
-# ── 중복상장 기업 목록 ──
 DOUBLE_LISTED = {
     "005930", "005935",
     "005380", "005385", "005387",
@@ -34,7 +33,6 @@ DOUBLE_LISTED = {
     "003490",
 }
 
-# ── 자사주 소각 우수 기업 ──
 BUYBACK_EXCELLENT = {
     "005380", "005385", "005387",
     "000270", "000272",
@@ -325,15 +323,14 @@ def calc_category_c(info: dict, ticker_code: str) -> dict:
 
 
 def get_grade(score: int) -> dict:
-    if score >= 90: return {"grade": "S", "label": "최고의 매수 기회 · 강력 매수", "color": "#a78bfa"}
-    if score >= 80: return {"grade": "A", "label": "장기투자 강력 추천 · 적극 매수", "color": "#10b981"}
-    if score >= 65: return {"grade": "B", "label": "한국 시장 우량주 · 장기투자 적합", "color": "#3b82f6"}
-    if score >= 50: return {"grade": "C", "label": "보유 유지 · 추가 매수 신중", "color": "#f59e0b"}
-    return             {"grade": "D", "label": "장기투자 비추천", "color": "#ef4444"}
+    if score >= 90: return {"grade": "S", "label": "최고의 매수 기회 · 강력 매수",    "color": "#a78bfa"}
+    if score >= 80: return {"grade": "A", "label": "장기투자 강력 추천 · 적극 매수",  "color": "#10b981"}
+    if score >= 65: return {"grade": "B", "label": "한국 시장 우량주 · 장기투자 적합","color": "#3b82f6"}
+    if score >= 50: return {"grade": "C", "label": "보유 유지 · 추가 매수 신중",      "color": "#f59e0b"}
+    return             {"grade": "D", "label": "장기투자 비추천",                  "color": "#ef4444"}
 
 
 async def analyze_ticker(ticker_code: str) -> dict | None:
-    """단일 종목 분석 - 스캐너용"""
     try:
         naver = await fetch_naver_metrics(ticker_code)
         stock = None
@@ -384,17 +381,14 @@ async def analyze_ticker(ticker_code: str) -> dict | None:
         return None
 
 
-async def run_full_scan():
-    """코스피 전체 종목 스캔 — 매일 새벽 2시 실행"""
-    print(f"🔍 전체 스캔 시작: {datetime.now()}")
+async def run_full_scan(start: int = 0, end: int = 100):
+    print(f"🔍 스캔 시작 ({start}~{end}): {datetime.now()}")
     try:
         import FinanceDataReader as fdr
         kospi = fdr.StockListing('KOSPI')
         tickers = kospi['Code'].tolist()
-        print(f"총 {len(tickers)}개 종목 스캔 예정")
     except Exception as e:
         print(f"종목 리스트 수집 실패: {e}")
-        # 수동 리스트로 대체
         tickers = [
             "005930", "000660", "005380", "005387", "000270",
             "051910", "035420", "068270", "207940", "006400",
@@ -403,29 +397,33 @@ async def run_full_scan():
             "003490", "010950", "011200", "009150", "000100",
         ]
 
+    target = tickers[start:end]
     qualified = []
     total_scanned = 0
 
-    for ticker in tickers[:50]:  # 처음엔 50개만 테스트
+    for ticker in target:
         result = await analyze_ticker(ticker)
         total_scanned += 1
-        if result and result["score"] >= 65:  # B등급 이상만 저장
+        if result and result["score"] >= 65:
             qualified.append(result)
             print(f"✅ {ticker} {result['name']} — {result['score']}점 ({result['grade']}등급)")
 
-    # DB 저장
+    # DB 저장 (누적 — 기존 데이터 유지하고 추가)
     try:
         conn = get_db()
         cur = conn.cursor()
 
-        # 기존 데이터 삭제 후 새로 저장
-        cur.execute("DELETE FROM rankings")
-
         for r in qualified:
+            # 이미 있으면 업데이트, 없으면 삽입
             cur.execute("""
                 INSERT INTO rankings
                 (ticker, name, score, grade, grade_label, per, pbr, roe, dividend_yield, sector, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (ticker) DO UPDATE SET
+                    name=EXCLUDED.name, score=EXCLUDED.score, grade=EXCLUDED.grade,
+                    grade_label=EXCLUDED.grade_label, per=EXCLUDED.per, pbr=EXCLUDED.pbr,
+                    roe=EXCLUDED.roe, dividend_yield=EXCLUDED.dividend_yield,
+                    sector=EXCLUDED.sector, updated_at=NOW()
             """, (
                 r["ticker"], r["name"], r["score"], r["grade"],
                 r["grade_label"], r["per"], r["pbr"], r["roe"],
@@ -447,10 +445,21 @@ async def run_full_scan():
 
 @app.on_event("startup")
 async def startup():
+    # ticker unique 제약 추가
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            ALTER TABLE rankings ADD CONSTRAINT rankings_ticker_unique UNIQUE (ticker)
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except:
+        pass
     init_db()
-    # 스케줄러 설정 — 매일 새벽 2시
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
-    scheduler.add_job(run_full_scan, "cron", hour=2, minute=0)
+    scheduler.add_job(run_full_scan, "cron", hour=2, minute=0, kwargs={"start": 0, "end": 9999})
     scheduler.start()
     print("✅ 스케줄러 시작 — 매일 새벽 2시 자동 스캔")
 
@@ -460,9 +469,16 @@ def root():
     return {"message": "가치투자 스크리닝 API v2.0 🚀"}
 
 
+@app.get("/scan-now")
+async def trigger_scan(start: int = 0, end: int = 100):
+    """수동 스캔 트리거 — 구간 지정 가능"""
+    import asyncio
+    asyncio.create_task(run_full_scan(start, end))
+    return {"message": f"스캔 시작: {start}~{end}번째 종목. 완료까지 수분 소요됩니다."}
+
+
 @app.get("/ranking")
 async def get_ranking():
-    """저장된 우량주 랭킹 반환"""
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -473,11 +489,8 @@ async def get_ranking():
             ORDER BY score DESC
         """)
         rows = cur.fetchall()
-
-        # 마지막 스캔 시간
         cur.execute("SELECT scanned_at, total_scanned, total_qualified FROM scan_log ORDER BY scanned_at DESC LIMIT 1")
         log = cur.fetchone()
-
         cur.close()
         conn.close()
 
@@ -506,14 +519,6 @@ async def get_ranking():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"랭킹 조회 실패: {str(e)}")
-
-
-@app.get("/scan-now")
-async def trigger_scan():
-    """수동으로 스캔 트리거 (테스트용)"""
-    import asyncio
-    asyncio.create_task(run_full_scan())
-    return {"message": "스캔 시작됐습니다. 완료까지 수분 소요됩니다."}
 
 
 @app.get("/debug/{ticker_code}")

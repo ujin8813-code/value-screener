@@ -1,10 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import yfinance as yf
 import re
 import httpx
+import psycopg2
+import os
+from datetime import datetime
 
-app = FastAPI(title="가치투자 스크리닝 API", version="1.0.0")
+app = FastAPI(title="가치투자 스크리닝 API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,7 +18,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── 중복상장 기업 목록 (금융지주 제외) ──
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@postgres.railway.internal:5432/railway"
+)
+
+# ── 중복상장 기업 목록 ──
 DOUBLE_LISTED = {
     "005930", "005935",
     "005380", "005385", "005387",
@@ -32,6 +41,46 @@ BUYBACK_EXCELLENT = {
     "005930", "005935",
     "086790", "105560", "055550",
 }
+
+
+def get_db():
+    return psycopg2.connect(DATABASE_URL)
+
+
+def init_db():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS rankings (
+                id SERIAL PRIMARY KEY,
+                ticker VARCHAR(10) NOT NULL,
+                name VARCHAR(100),
+                score INTEGER,
+                grade VARCHAR(5),
+                grade_label VARCHAR(100),
+                per FLOAT,
+                pbr FLOAT,
+                roe FLOAT,
+                dividend_yield FLOAT,
+                sector VARCHAR(100),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS scan_log (
+                id SERIAL PRIMARY KEY,
+                scanned_at TIMESTAMP DEFAULT NOW(),
+                total_scanned INTEGER,
+                total_qualified INTEGER
+            )
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("✅ DB 초기화 완료")
+    except Exception as e:
+        print(f"DB 초기화 실패: {e}")
 
 
 async def fetch_naver_metrics(ticker_code: str) -> dict:
@@ -85,11 +134,10 @@ async def fetch_naver_metrics(ticker_code: str) -> dict:
                     try:
                         result["roe"] = float(roe_m.group(1).replace(",", ""))
                         break
-                    except:
-                        pass
+                    except: pass
 
     except Exception as e:
-        print(f"네이버 HTML 파싱 실패: {e}")
+        print(f"네이버 파싱 실패 ({ticker_code}): {e}")
     return result
 
 
@@ -97,7 +145,6 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict) -> dict:
     scores = {}
     details = {}
 
-    # PER (15점) — 네이버 우선
     per = naver.get("per") or info.get("trailingPE") or info.get("forwardPE")
     if per and per > 0:
         if per < 5:       scores["per"] = 15
@@ -114,7 +161,6 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict) -> dict:
         details["per"] = None
         details["per_status"] = None
 
-    # PBR (5점) — 네이버 우선
     pbr = naver.get("pbr") or info.get("priceToBook")
     if not pbr:
         price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
@@ -136,7 +182,6 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict) -> dict:
         details["pbr"] = None
         details["pbr_status"] = None
 
-    # ROE (10점) — yfinance TTM 우선, 없으면 네이버
     roe_raw = info.get("returnOnEquity")
     roe_yf  = round(roe_raw * 100, 2) if roe_raw else None
     roe_nav = naver.get("roe")
@@ -158,7 +203,6 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict) -> dict:
         details["roe"] = None
         details["roe_status"] = None
 
-    # 이익 안정성 (5점)
     op_margins = hist_financials.get("operating_margins", [])
     if len(op_margins) >= 3:
         all_positive = all(m > 0 for m in op_margins[-4:] if m is not None)
@@ -176,14 +220,12 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
     scores = {}
     details = {}
 
-    # 배당수익률 (10점) — yfinance 직접계산 우선
     price    = info.get("currentPrice") or info.get("regularMarketPrice") or 0
     div_rate = info.get("dividendRate", 0) or 0
     dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
     dy_nav   = naver.get("dividend_yield")
     dy_raw   = info.get("dividendYield")
     dy_yf    = (dy_raw if dy_raw and dy_raw > 1 else dy_raw * 100) if dy_raw else None
-    # 직접계산 → yfinance → 네이버 순서
     dy_pct   = dy_calc or dy_yf or dy_nav
 
     if dy_pct and dy_pct > 0:
@@ -201,7 +243,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         details["dividend_yield"] = 0.0
         details["dy_status"] = None
 
-    # 자사주 소각 (10점)
     if ticker_code in BUYBACK_EXCELLENT:
         scores["buyback"] = 10
         details["buyback"] = "자사주 100% 소각 정책 ✅"
@@ -209,7 +250,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         scores["buyback"] = 3
         details["buyback"] = "소각 정책 미확인"
 
-    # 배당 지속성 (5점)
     payout = info.get("payoutRatio", 0) or 0
     if div_rate > 0 and 0 < payout < 0.8:
         scores["dividend_continuity"] = 5
@@ -221,7 +261,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         scores["dividend_continuity"] = 0
         details["dividend_continuity"] = "배당 없음"
 
-    # 단독 상장 여부 (5점)
     if ticker_code in DOUBLE_LISTED:
         scores["listing"] = 0
         details["listing"] = "중복상장"
@@ -229,7 +268,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         scores["listing"] = 5
         details["listing"] = "단독 상장 ✅"
 
-    # 부채비율 (5점) — 금융주 예외처리
     sector = info.get("sector", "")
     dte    = info.get("debtToEquity")
     if sector in ["Financial Services", "금융"]:
@@ -265,19 +303,13 @@ def calc_category_c(info: dict, ticker_code: str) -> dict:
     scores = {}
     details = {}
 
-    # 미래 성장 잠재력 (10점 더미)
     scores["growth"] = 6
     details["growth"] = "수동 입력 필요"
-
-    # 기업 경영 (10점 더미)
     scores["management"] = 6
     details["management"] = "수동 입력 필요"
-
-    # 세계적 브랜드 (5점 더미)
     scores["brand"] = 3
     details["brand"] = "수동 입력 필요"
 
-    # 경쟁 해자 (5점) — 시가총액 기반
     market_cap = info.get("marketCap", 0) or 0
     if market_cap > 10_000_000_000_000:
         scores["moat"] = 5
@@ -293,16 +325,195 @@ def calc_category_c(info: dict, ticker_code: str) -> dict:
 
 
 def get_grade(score: int) -> dict:
-    if score >= 90: return {"grade": "S", "label": "생애 최고의 매수 기회 · 강력 매수", "color": "#a78bfa"}
-    if score >= 80: return {"grade": "A", "label": "장기투자 강력 추천 · 적극 매수",    "color": "#10b981"}
-    if score >= 65: return {"grade": "B", "label": "한국 시장 우량주 · 장기투자 적합",  "color": "#3b82f6"}
-    if score >= 50: return {"grade": "C", "label": "보유 유지 · 추가 매수 신중",        "color": "#f59e0b"}
-    return             {"grade": "D", "label": "장기투자 비추천",                    "color": "#ef4444"}
+    if score >= 90: return {"grade": "S", "label": "최고의 매수 기회 · 강력 매수", "color": "#a78bfa"}
+    if score >= 80: return {"grade": "A", "label": "장기투자 강력 추천 · 적극 매수", "color": "#10b981"}
+    if score >= 65: return {"grade": "B", "label": "한국 시장 우량주 · 장기투자 적합", "color": "#3b82f6"}
+    if score >= 50: return {"grade": "C", "label": "보유 유지 · 추가 매수 신중", "color": "#f59e0b"}
+    return             {"grade": "D", "label": "장기투자 비추천", "color": "#ef4444"}
+
+
+async def analyze_ticker(ticker_code: str) -> dict | None:
+    """단일 종목 분석 - 스캐너용"""
+    try:
+        naver = await fetch_naver_metrics(ticker_code)
+        stock = None
+        info  = None
+        for suffix in [".KS", ".KQ"]:
+            s = yf.Ticker(ticker_code.strip().zfill(6) + suffix)
+            i = s.info
+            p = i.get("currentPrice") or i.get("regularMarketPrice") or i.get("previousClose")
+            if p:
+                stock, info = s, i
+                break
+        if not stock:
+            return None
+
+        op_margins = []
+        try:
+            income = stock.income_stmt
+            if income is not None and not income.empty:
+                for col in income.columns[:4]:
+                    try:
+                        op_inc = income.loc["Operating Income", col]
+                        rev    = income.loc["Total Revenue", col]
+                        if rev and rev != 0:
+                            op_margins.append(round(float(op_inc / rev), 4))
+                    except: pass
+        except: pass
+
+        cat_a = calc_category_a(info, {"operating_margins": op_margins}, naver)
+        cat_b = calc_category_b(info, naver, ticker_code)
+        cat_c = calc_category_c(info, ticker_code)
+        total = min(100, cat_a["total"] + cat_b["total"] + cat_c["total"])
+        grade = get_grade(total)
+
+        return {
+            "ticker":         ticker_code,
+            "name":           info.get("longName") or info.get("shortName") or ticker_code,
+            "score":          total,
+            "grade":          grade["grade"],
+            "grade_label":    grade["label"],
+            "per":            cat_a["details"].get("per"),
+            "pbr":            cat_a["details"].get("pbr"),
+            "roe":            cat_a["details"].get("roe"),
+            "dividend_yield": cat_b["details"].get("dividend_yield"),
+            "sector":         info.get("sector", "N/A"),
+        }
+    except Exception as e:
+        print(f"분석 실패 ({ticker_code}): {e}")
+        return None
+
+
+async def run_full_scan():
+    """코스피 전체 종목 스캔 — 매일 새벽 2시 실행"""
+    print(f"🔍 전체 스캔 시작: {datetime.now()}")
+    try:
+        import FinanceDataReader as fdr
+        kospi = fdr.StockListing('KOSPI')
+        tickers = kospi['Code'].tolist()
+        print(f"총 {len(tickers)}개 종목 스캔 예정")
+    except Exception as e:
+        print(f"종목 리스트 수집 실패: {e}")
+        # 수동 리스트로 대체
+        tickers = [
+            "005930", "000660", "005380", "005387", "000270",
+            "051910", "035420", "068270", "207940", "006400",
+            "086790", "105560", "055550", "316140", "017670",
+            "034730", "003550", "015760", "032830", "028260",
+            "003490", "010950", "011200", "009150", "000100",
+        ]
+
+    qualified = []
+    total_scanned = 0
+
+    for ticker in tickers[:50]:  # 처음엔 50개만 테스트
+        result = await analyze_ticker(ticker)
+        total_scanned += 1
+        if result and result["score"] >= 65:  # B등급 이상만 저장
+            qualified.append(result)
+            print(f"✅ {ticker} {result['name']} — {result['score']}점 ({result['grade']}등급)")
+
+    # DB 저장
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        # 기존 데이터 삭제 후 새로 저장
+        cur.execute("DELETE FROM rankings")
+
+        for r in qualified:
+            cur.execute("""
+                INSERT INTO rankings
+                (ticker, name, score, grade, grade_label, per, pbr, roe, dividend_yield, sector, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            """, (
+                r["ticker"], r["name"], r["score"], r["grade"],
+                r["grade_label"], r["per"], r["pbr"], r["roe"],
+                r["dividend_yield"], r["sector"]
+            ))
+
+        cur.execute("""
+            INSERT INTO scan_log (total_scanned, total_qualified)
+            VALUES (%s, %s)
+        """, (total_scanned, len(qualified)))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"✅ 스캔 완료: {total_scanned}개 중 {len(qualified)}개 저장")
+    except Exception as e:
+        print(f"DB 저장 실패: {e}")
+
+
+@app.on_event("startup")
+async def startup():
+    init_db()
+    # 스케줄러 설정 — 매일 새벽 2시
+    scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
+    scheduler.add_job(run_full_scan, "cron", hour=2, minute=0)
+    scheduler.start()
+    print("✅ 스케줄러 시작 — 매일 새벽 2시 자동 스캔")
 
 
 @app.get("/")
 def root():
-    return {"message": "가치투자 스크리닝 API 정상 작동 중 🚀"}
+    return {"message": "가치투자 스크리닝 API v2.0 🚀"}
+
+
+@app.get("/ranking")
+async def get_ranking():
+    """저장된 우량주 랭킹 반환"""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ticker, name, score, grade, grade_label,
+                   per, pbr, roe, dividend_yield, sector, updated_at
+            FROM rankings
+            ORDER BY score DESC
+        """)
+        rows = cur.fetchall()
+
+        # 마지막 스캔 시간
+        cur.execute("SELECT scanned_at, total_scanned, total_qualified FROM scan_log ORDER BY scanned_at DESC LIMIT 1")
+        log = cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "rankings": [
+                {
+                    "ticker":         r[0],
+                    "name":           r[1],
+                    "score":          r[2],
+                    "grade":          r[3],
+                    "grade_label":    r[4],
+                    "per":            r[5],
+                    "pbr":            r[6],
+                    "roe":            r[7],
+                    "dividend_yield": r[8],
+                    "sector":         r[9],
+                    "updated_at":     r[10].strftime("%Y-%m-%d %H:%M") if r[10] else None,
+                }
+                for r in rows
+            ],
+            "last_scan": {
+                "scanned_at":      log[0].strftime("%Y-%m-%d %H:%M") if log else None,
+                "total_scanned":   log[1] if log else 0,
+                "total_qualified": log[2] if log else 0,
+            } if log else None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"랭킹 조회 실패: {str(e)}")
+
+
+@app.post("/scan")
+async def trigger_scan():
+    """수동으로 스캔 트리거 (테스트용)"""
+    import asyncio
+    asyncio.create_task(run_full_scan())
+    return {"message": "스캔 시작됐습니다. 완료까지 수분 소요됩니다."}
 
 
 @app.get("/debug/{ticker_code}")
@@ -313,9 +524,6 @@ async def debug(ticker_code: str):
         info  = stock.info
         p = info.get("currentPrice") or info.get("regularMarketPrice")
         if p:
-            price    = p
-            div_rate = info.get("dividendRate", 0) or 0
-            dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
             return {
                 "yfinance": {
                     "priceToBook":    info.get("priceToBook"),
@@ -324,8 +532,7 @@ async def debug(ticker_code: str):
                     "debtToEquity":   info.get("debtToEquity"),
                     "returnOnEquity": info.get("returnOnEquity"),
                     "dividendYield":  info.get("dividendYield"),
-                    "dividendRate":   div_rate,
-                    "dy_calc":        dy_calc,
+                    "dividendRate":   info.get("dividendRate"),
                     "sector":         info.get("sector"),
                 },
                 "naver": naver,
@@ -341,7 +548,6 @@ async def analyze(ticker_code: str):
         raise HTTPException(status_code=400, detail="6자리 종목코드를 입력하세요")
     try:
         naver = await fetch_naver_metrics(ticker_code)
-
         stock = None
         info  = None
         price = None
@@ -365,15 +571,12 @@ async def analyze(ticker_code: str):
                         rev    = income.loc["Total Revenue", col]
                         if rev and rev != 0:
                             op_margins.append(round(float(op_inc / rev), 4))
-                    except:
-                        pass
-        except:
-            pass
+                    except: pass
+        except: pass
 
         cat_a = calc_category_a(info, {"operating_margins": op_margins}, naver)
         cat_b = calc_category_b(info, naver, ticker_code)
         cat_c = calc_category_c(info, ticker_code)
-
         total = min(100, cat_a["total"] + cat_b["total"] + cat_c["total"])
 
         return {
@@ -438,3 +641,4 @@ async def dividend_simulation(
         "total_dividend_earned": results[-1]["cumulative_dividend"],
         "yearly":                results
     }
+    

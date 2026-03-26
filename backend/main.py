@@ -20,7 +20,7 @@ app.add_middleware(
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@postgres.railway.internal:5432/railway"
+    "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@crossover.proxy.rlwy.net:36008/railway"
 )
 
 # ── 중복상장 기업 목록 ──

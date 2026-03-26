@@ -508,7 +508,7 @@ async def get_ranking():
         raise HTTPException(status_code=500, detail=f"랭킹 조회 실패: {str(e)}")
 
 
-@app.post("/scan")
+@app.get("/scan")
 async def trigger_scan():
     """수동으로 스캔 트리거 (테스트용)"""
     import asyncio
@@ -641,4 +641,3 @@ async def dividend_simulation(
         "total_dividend_earned": results[-1]["cumulative_dividend"],
         "yearly":                results
     }
-    

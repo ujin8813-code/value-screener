@@ -218,7 +218,7 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
     # PBR (5점)
     pbr = naver.get("pbr") or info.get("priceToBook")
     if not pbr:
-        price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
+        price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or 0
         bvps  = info.get("bookValue") or naver.get("bps") or 0
         if price and bvps and bvps > 0:
             pbr = round(price / bvps, 2)
@@ -269,8 +269,8 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
     scores = {}
     details = {}
 
-    # 배당수익률 (10점)
-    price    = info.get("currentPrice") or info.get("regularMarketPrice") or 0
+    # 배당수익률 (10점) — 직접계산 → yfinance → 네이버 순서
+    price    = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or 0
     div_rate = info.get("dividendRate", 0) or 0
     dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
     dy_nav   = naver.get("dividend_yield")
@@ -327,7 +327,7 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         scores["buyback"] = 0
         details["buyback"] = "소각 미실시"
 
-    # 주주환원 강도 — 연간 소각 비율 (7점)
+    # 주주환원 강도 (7점)
     ratio = BUYBACK_RATIO.get(ticker_code, 0)
     if ratio > 2.0:
         scores["buyback_ratio"] = 7
@@ -342,7 +342,7 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         scores["buyback_ratio"] = 0
         details["buyback_ratio"] = "소각 비율 미미"
 
-    # 유통주식 건전성 — 자사주 보유 비율 (4점)
+    # 유통주식 건전성 (4점)
     treasury = TREASURY_RATIO.get(ticker_code, -1)
     if treasury == -1:
         scores["treasury"] = 4
@@ -555,7 +555,6 @@ def root():
 
 @app.get("/reset-rankings")
 async def reset_rankings():
-    """랭킹 데이터 초기화"""
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -644,8 +643,11 @@ async def debug(ticker_code: str):
     for suffix in [".KS", ".KQ"]:
         stock = yf.Ticker(ticker_code.strip().zfill(6) + suffix)
         info  = stock.info
-        p = info.get("currentPrice") or info.get("regularMarketPrice")
+        p = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
         if p:
+            price    = p
+            div_rate = info.get("dividendRate", 0) or 0
+            dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
             return {
                 "yfinance": {
                     "priceToBook":    info.get("priceToBook"),
@@ -654,7 +656,8 @@ async def debug(ticker_code: str):
                     "debtToEquity":   info.get("debtToEquity"),
                     "returnOnEquity": info.get("returnOnEquity"),
                     "dividendYield":  info.get("dividendYield"),
-                    "dividendRate":   info.get("dividendRate"),
+                    "dividendRate":   div_rate,
+                    "dy_calc":        dy_calc,
                     "sector":         info.get("sector"),
                 },
                 "naver": naver,

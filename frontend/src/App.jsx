@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE = "https://value-screener-production-2355.up.railway.app.up.railway.app";
 
 const GRADE_CONFIG = {
   S: { color: "#a78bfa", border: "border-violet-400", text: "text-violet-300", bg: "from-violet-500/20 to-purple-500/20" },

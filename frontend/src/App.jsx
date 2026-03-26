@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const API_BASE = "https://value-screener-production-2355.up.railway.app";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const GRADE_CONFIG = {
   S: { color: "#a78bfa", border: "border-violet-400", text: "text-violet-300", bg: "from-violet-500/20 to-purple-500/20" },
@@ -61,24 +61,14 @@ function ValueGauge({ score, grade }) {
               </feMerge>
             </filter>
           </defs>
-
-          {/* 배경 트랙 */}
-          <path
-            d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
-            fill="none" stroke="rgba(255,255,255,0.07)"
-            strokeWidth="14" strokeLinecap="round"
-          />
-
-          {/* 진행 바 */}
-          <path
-            d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
+          <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
+            fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="14" strokeLinecap="round"/>
+          <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
             fill="none" stroke={col} strokeWidth="14" strokeLinecap="round"
             strokeDasharray={`${prog.toFixed(1)} ${circ.toFixed(1)}`}
             filter="url(#glow)"
             style={{ transition: "stroke-dasharray 1.4s cubic-bezier(0.34,1.56,0.64,1)" }}
           />
-
-          {/* 등급 마커 */}
           {markers.map(({ score: s, label, color }) => {
             const rad = scoreToRad(s);
             const ix = CX + (R - 8) * Math.cos(rad);
@@ -97,12 +87,9 @@ function ValueGauge({ score, grade }) {
               </g>
             );
           })}
-
-          {/* 0 / 100 눈금 */}
           <text x={CX - R - 14} y={CY + 16} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="middle">0</text>
           <text x={CX + R + 14} y={CY + 16} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="middle">100</text>
         </svg>
-
         <div className="absolute inset-0 flex flex-col items-center justify-end pb-3">
           <span style={{ fontSize: 52, color: col, fontFamily: "monospace", lineHeight: 1, transition: "color 0.5s", fontWeight: 700 }}>
             {Math.round(anim)}
@@ -110,7 +97,6 @@ function ValueGauge({ score, grade }) {
           <span className="text-white/30 text-xs tracking-widest mt-1">/ 100점</span>
         </div>
       </div>
-
       <div className={`mt-3 px-8 py-2 rounded-full border ${GRADE_CONFIG[grade]?.border} bg-white/5`}>
         <span className={`text-2xl font-black ${GRADE_CONFIG[grade]?.text}`}>{grade}등급</span>
       </div>
@@ -124,22 +110,15 @@ function ScoreBar({ label, score, max, color }) {
     const t = setTimeout(() => setW(Math.round((score / max) * 100)), 500);
     return () => clearTimeout(t);
   }, [score, max]);
-
   return (
     <div className="mb-4">
       <div className="flex justify-between mb-1">
         <span className="text-white/70 text-sm">{label}</span>
-        <span className="text-white text-sm font-bold">
-          {score}<span className="text-white/30">/{max}</span>
-        </span>
+        <span className="text-white text-sm font-bold">{score}<span className="text-white/30">/{max}</span></span>
       </div>
       <div className="h-2.5 bg-white/10 rounded-full overflow-hidden">
         <div className="h-full rounded-full"
-          style={{
-            width: `${w}%`, background: color,
-            transition: "width 1.2s cubic-bezier(0.34,1.56,0.64,1)",
-            boxShadow: `0 0 10px ${color}60`
-          }}
+          style={{ width: `${w}%`, background: color, transition: "width 1.2s cubic-bezier(0.34,1.56,0.64,1)", boxShadow: `0 0 10px ${color}60` }}
         />
       </div>
     </div>
@@ -152,9 +131,7 @@ function MetricCard({ label, value, unit = "", highlight = false, status = null 
     <div className={`p-4 rounded-xl border ${highlight ? "border-blue-400/40 bg-blue-500/10" : "border-white/10 bg-white/5"}`}>
       <div className="flex items-center justify-between mb-1">
         <p className="text-white/40 text-xs">{label}</p>
-        {status && sc && (
-          <span className={`text-xs px-2 py-0.5 rounded-full ${sc.bg} ${sc.text}`}>{status}</span>
-        )}
+        {status && sc && <span className={`text-xs px-2 py-0.5 rounded-full ${sc.bg} ${sc.text}`}>{status}</span>}
       </div>
       <p className={`font-black text-xl ${highlight ? "text-blue-300" : value != null ? "text-white" : "text-white/30"}`}>
         {value != null ? `${value}${unit}` : "N/A"}
@@ -195,19 +172,13 @@ function DividendSimulator({ dividendYield }) {
     const rate = dividendYield / 100;
     let cur = principal, arr = [];
     for (let y = 1; y <= years; y++) {
-      const div = cur * rate;
-      cur += div;
+      const div = cur * rate; cur += div;
       arr.push({ year: y, total: Math.round(cur), div: Math.round(div) });
     }
     setResults(arr);
-
     let arr2 = [];
     for (let y = 1; y <= years; y++) {
-      arr2.push({
-        year: y,
-        total: Math.round(principal + principal * rate * y),
-        div: Math.round(principal * rate)
-      });
+      arr2.push({ year: y, total: Math.round(principal + principal * rate * y), div: Math.round(principal * rate) });
     }
     setNoReinvestResults(arr2);
   }, [principal, years, dividendYield]);
@@ -231,37 +202,26 @@ function DividendSimulator({ dividendYield }) {
       <div className="flex items-center gap-2 mb-4">
         <span className="text-xl">❄️</span>
         <h3 className="text-white font-bold text-base">배당 눈덩이 시뮬레이터</h3>
-        <span className="ml-auto text-xs px-2 py-1 rounded-full bg-white/10 text-white/40">
-          연 {dividendYield.toFixed(1)}%
-        </span>
+        <span className="ml-auto text-xs px-2 py-1 rounded-full bg-white/10 text-white/40">연 {dividendYield.toFixed(1)}%</span>
       </div>
-
       <div className="mb-4">
         <div className="flex justify-between mb-1">
           <label className="text-white/40 text-xs">초기 투자금</label>
           <span className="text-white text-xs font-bold">{(principal/10000).toLocaleString()}만원</span>
         </div>
         <input type="range" min="1000000" max="100000000" step="1000000"
-          value={principal} onChange={e => setPrincipal(Number(e.target.value))}
-          className="w-full accent-blue-400"/>
-        <div className="flex justify-between text-white/20 text-xs mt-1">
-          <span>100만</span><span>5,000만</span><span>1억</span>
-        </div>
+          value={principal} onChange={e => setPrincipal(Number(e.target.value))} className="w-full accent-blue-400"/>
+        <div className="flex justify-between text-white/20 text-xs mt-1"><span>100만</span><span>5,000만</span><span>1억</span></div>
       </div>
-
       <div className="mb-4">
         <div className="flex justify-between mb-1">
           <label className="text-white/40 text-xs">투자 기간</label>
           <span className="text-white text-xs font-bold">{years}년</span>
         </div>
         <input type="range" min="1" max="30" step="1"
-          value={years} onChange={e => setYears(Number(e.target.value))}
-          className="w-full accent-blue-400"/>
-        <div className="flex justify-between text-white/20 text-xs mt-1">
-          <span>1년</span><span>15년</span><span>30년</span>
-        </div>
+          value={years} onChange={e => setYears(Number(e.target.value))} className="w-full accent-blue-400"/>
+        <div className="flex justify-between text-white/20 text-xs mt-1"><span>1년</span><span>15년</span><span>30년</span></div>
       </div>
-
       <div className="flex items-center gap-3 mb-5">
         <button onClick={() => setReinvest(!reinvest)}
           className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${reinvest ? "bg-emerald-500" : "bg-white/20"}`}>
@@ -269,53 +229,42 @@ function DividendSimulator({ dividendYield }) {
         </button>
         <span className="text-white/50 text-sm">배당금 재투자 (복리)</span>
       </div>
-
       <div className="flex items-end gap-1.5 mb-2" style={{ height: 160 }}>
         {filteredResults.map((r, i) => {
-          const noR      = filteredNoReinvest[i];
-          const base     = noR ? Math.round((noR.total / maxVal) * 100) : 0;
-          const extra    = Math.round((r.total / maxVal) * 100) - base;
-          const isLast   = i === filteredResults.length - 1;
+          const noR = filteredNoReinvest[i];
+          const base = noR ? Math.round((noR.total / maxVal) * 100) : 0;
+          const extra = Math.round((r.total / maxVal) * 100) - base;
+          const isLast = i === filteredResults.length - 1;
           const displayVal = reinvest ? r.total : (noR?.total || r.total);
           return (
             <div key={r.year} className="flex-1 flex flex-col items-center gap-1" style={{ height: "100%" }}>
-              <div className="text-white/50 text-center" style={{ fontSize: 10 }}>
-                {Math.round(displayVal / 10000)}만
-              </div>
+              <div className="text-white/50 text-center" style={{ fontSize: 10 }}>{Math.round(displayVal / 10000)}만</div>
               <div className="w-full flex-1 flex flex-col justify-end">
                 {reinvest && extra > 0 && (
-                  <div className="w-full rounded-t-sm"
-                    style={{ height: `${extra}%`, background: "linear-gradient(to top, #34d399, #06b6d4)", opacity: 0.9 }}
-                  />
+                  <div className="w-full rounded-t-sm" style={{ height: `${extra}%`, background: "linear-gradient(to top, #34d399, #06b6d4)", opacity: 0.9 }}/>
                 )}
-                <div className="w-full"
-                  style={{
-                    height: `${base}%`, minHeight: 6,
-                    background: isLast ? "linear-gradient(to top, #1e40af, #3b82f6)" : "linear-gradient(to top, #1e3a5f, #2563eb)",
-                    borderRadius: reinvest && extra > 0 ? "0 0 4px 4px" : "4px 4px 0 0",
-                    boxShadow: isLast ? "0 0 12px #3b82f640" : "none",
-                  }}
-                />
+                <div className="w-full" style={{
+                  height: `${base}%`, minHeight: 6,
+                  background: isLast ? "linear-gradient(to top, #1e40af, #3b82f6)" : "linear-gradient(to top, #1e3a5f, #2563eb)",
+                  borderRadius: reinvest && extra > 0 ? "0 0 4px 4px" : "4px 4px 0 0",
+                  boxShadow: isLast ? "0 0 12px #3b82f640" : "none",
+                }}/>
               </div>
               <span className="text-white/40 text-xs">{r.year}년</span>
             </div>
           );
         })}
       </div>
-
       {reinvest && (
         <div className="flex items-center gap-4 mb-3 justify-center">
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-sm" style={{ background: "#3b82f6" }}/>
-            <span className="text-white/40 text-xs">원금+단순배당</span>
+            <div className="w-3 h-3 rounded-sm" style={{ background: "#3b82f6" }}/><span className="text-white/40 text-xs">원금+단순배당</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-sm" style={{ background: "#34d399" }}/>
-            <span className="text-white/40 text-xs">복리 추가 효과</span>
+            <div className="w-3 h-3 rounded-sm" style={{ background: "#34d399" }}/><span className="text-white/40 text-xs">복리 추가 효과</span>
           </div>
         </div>
       )}
-
       <div className="grid grid-cols-3 gap-2 mt-2">
         <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
           <p className="text-white/40 text-xs mb-1">최종 자산</p>
@@ -330,7 +279,6 @@ function DividendSimulator({ dividendYield }) {
           <p className="text-blue-300 font-black text-base">+{gainPct}%</p>
         </div>
       </div>
-
       <div className="mt-4 p-3 rounded-xl border border-dashed border-white/15 text-center">
         <p className="text-white/25 text-xs">📌 광고 영역 — 증권사 계좌개설 CPA 링크</p>
       </div>
@@ -338,26 +286,130 @@ function DividendSimulator({ dividendYield }) {
   );
 }
 
+// ── 랭킹 페이지 ──
+function RankingPage({ onSelectTicker }) {
+  const [rankings, setRankings] = useState([]);
+  const [lastScan, setLastScan] = useState(null);
+  const [loading,  setLoading]  = useState(true);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/ranking`)
+      .then(r => r.json())
+      .then(data => {
+        setRankings(data.rankings || []);
+        setLastScan(data.last_scan);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-white font-black text-xl">🏆 우량주 랭킹</h2>
+          <p className="text-white/30 text-xs mt-1">
+            {lastScan
+              ? `${lastScan.scanned_at} 기준 · ${lastScan.total_scanned}개 분석 · ${lastScan.total_qualified}개 선정`
+              : "데이터 로딩 중..."}
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-white/30">분석 중...</div>
+      ) : rankings.length === 0 ? (
+        <div className="p-6 rounded-2xl border border-white/10 bg-white/5 text-center">
+          <p className="text-white/40 text-sm">아직 스캔 데이터가 없습니다</p>
+          <p className="text-white/20 text-xs mt-1">매일 새벽 2시 자동 업데이트</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {rankings.map((r, i) => {
+            const cfg = GRADE_CONFIG[r.grade] || GRADE_CONFIG["D"];
+            return (
+              <div key={r.ticker}
+                onClick={() => onSelectTicker(r.ticker)}
+                className={`p-4 rounded-2xl border ${cfg.border} bg-white/5 cursor-pointer active:scale-98 transition-all hover:bg-white/10`}>
+                <div className="flex items-center gap-3">
+                  {/* 순위 */}
+                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+                    <span className="text-white/60 text-xs font-bold">{i + 1}</span>
+                  </div>
+
+                  {/* 종목 정보 */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-white font-bold text-sm truncate">{r.name}</p>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${cfg.border} ${cfg.text} shrink-0`}>
+                        {r.grade}
+                      </span>
+                    </div>
+                    <p className="text-white/30 text-xs mt-0.5">{r.ticker} · {r.sector}</p>
+                  </div>
+
+                  {/* 점수 */}
+                  <div className="text-right shrink-0">
+                    <p className={`text-2xl font-black ${cfg.text}`}>{r.score}</p>
+                    <p className="text-white/20 text-xs">/ 100</p>
+                  </div>
+                </div>
+
+                {/* 핵심 지표 */}
+                <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-white/10">
+                  <div className="text-center">
+                    <p className="text-white/30 text-xs">PER</p>
+                    <p className="text-white text-sm font-bold">{r.per ?? "N/A"}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-white/30 text-xs">PBR</p>
+                    <p className="text-white text-sm font-bold">{r.pbr ?? "N/A"}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-white/30 text-xs">ROE</p>
+                    <p className="text-white text-sm font-bold">{r.roe ? `${r.roe}%` : "N/A"}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-white/30 text-xs">배당</p>
+                    <p className="text-white text-sm font-bold">{r.dividend_yield ? `${r.dividend_yield}%` : "N/A"}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="text-white/15 text-xs text-center">
+        매일 새벽 2시 자동 업데이트 · 클릭하면 상세 분석
+      </p>
+    </div>
+  );
+}
+
+// ── 메인 앱 ──
 export default function App() {
+  const [tab,     setTab]     = useState("screener");
   const [ticker,  setTicker]  = useState("");
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState(null);
   const [error,   setError]   = useState("");
 
-  const analyze = async () => {
-    const code = ticker.trim();
-    if (!code || code.length !== 6) {
+  const analyze = async (code) => {
+    const t = (code || ticker).trim();
+    if (!t || t.length !== 6) {
       setError("6자리 종목코드를 입력하세요 (예: 005387)");
       return;
     }
-    setLoading(true); setError(""); setResult(null);
+    setLoading(true); setError(""); setResult(null); setTab("screener");
     try {
-      const res = await fetch(`${API_BASE}/analyze/${code}`);
+      const res = await fetch(`${API_BASE}/analyze/${t}`);
       if (!res.ok) {
         const e = await res.json();
         throw new Error(e.detail || "분석 실패");
       }
       setResult(await res.json());
+      setTicker(t);
     } catch (e) {
       setError(e.message || "서버 오류");
     } finally {
@@ -379,9 +431,10 @@ export default function App() {
   return (
     <div className="min-h-screen text-white"
       style={{ background: "radial-gradient(ellipse at 20% 50%, #0f172a 0%, #020617 60%), radial-gradient(ellipse at 80% 20%, #1e1b4b 0%, transparent 50%)" }}>
-      <div className="max-w-md mx-auto px-4 py-8 pb-20">
+      <div className="max-w-md mx-auto px-4 py-8 pb-24">
 
-        <div className="mb-8">
+        {/* 헤더 */}
+        <div className="mb-6">
           <p className="text-white/30 text-xs tracking-widest uppercase mb-2">📈 Value Screener</p>
           <h1 className="text-3xl font-black leading-tight">
             한국 주식<br/>
@@ -389,108 +442,145 @@ export default function App() {
               가치투자 분석기
             </span>
           </h1>
-          <p className="text-white/30 text-sm mt-2">종목코드 입력 → 100점 만점 투자 등급 즉시 산출</p>
         </div>
 
-        <div className="relative mb-2">
-          <input
-            type="text" inputMode="numeric" maxLength={6}
-            placeholder="종목코드 6자리 (예: 005387)"
-            value={ticker}
-            onChange={e => setTicker(e.target.value.replace(/\D/g, ""))}
-            onKeyDown={e => e.key === "Enter" && analyze()}
-            className="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white text-lg placeholder-white/20 focus:outline-none focus:border-blue-400 transition-all"
-          />
-          <button onClick={analyze} disabled={loading}
-            className="absolute right-3 top-1/2 -translate-y-1/2 px-5 py-2 rounded-xl font-bold text-sm text-white disabled:opacity-40"
-            style={{ background: "linear-gradient(135deg,#3b82f6,#06b6d4)", boxShadow: "0 0 20px #3b82f640" }}>
-            {loading ? "분석중..." : "분석 →"}
+        {/* 탭 */}
+        <div className="flex gap-2 mb-6 p-1 rounded-2xl bg-white/5 border border-white/10">
+          <button onClick={() => setTab("screener")}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${tab === "screener" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"}`}>
+            🔍 종목 분석
+          </button>
+          <button onClick={() => setTab("ranking")}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${tab === "ranking" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"}`}>
+            🏆 우량주 랭킹
           </button>
         </div>
 
-        <div className="flex gap-2 mb-6 flex-wrap">
-          {[["005387","현대차2우B"],["000270","기아"],["086790","하나금융"]].map(([code, name]) => (
-            <button key={code} onClick={() => setTicker(code)}
-              className="px-3 py-1 text-xs rounded-full border border-white/20 text-white/40 hover:text-white hover:border-white/50 transition-all">
-              {name}
-            </button>
-          ))}
-        </div>
+        {/* 종목 분석 탭 */}
+        {tab === "screener" && (
+          <>
+            <div className="relative mb-2">
+              <input
+                type="text" inputMode="numeric" maxLength={6}
+                placeholder="종목코드 6자리 (예: 005387)"
+                value={ticker}
+                onChange={e => setTicker(e.target.value.replace(/\D/g, ""))}
+                onKeyDown={e => e.key === "Enter" && analyze()}
+                className="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white text-lg placeholder-white/20 focus:outline-none focus:border-blue-400 transition-all"
+              />
+              <button onClick={() => analyze()} disabled={loading}
+                className="absolute right-3 top-1/2 -translate-y-1/2 px-5 py-2 rounded-xl font-bold text-sm text-white disabled:opacity-40"
+                style={{ background: "linear-gradient(135deg,#3b82f6,#06b6d4)", boxShadow: "0 0 20px #3b82f640" }}>
+                {loading ? "분석중..." : "분석 →"}
+              </button>
+            </div>
 
-        {error && (
-          <div className="mb-4 p-4 rounded-xl border border-red-500/40 bg-red-500/10 text-red-300 text-sm">
-            ⚠️ {error}
-          </div>
-        )}
+            <div className="flex gap-2 mb-6 flex-wrap">
+              {[["005387","현대차2우B"],["000270","기아"],["086790","하나금융"]].map(([code, name]) => (
+                <button key={code} onClick={() => { setTicker(code); analyze(code); }}
+                  className="px-3 py-1 text-xs rounded-full border border-white/20 text-white/40 hover:text-white hover:border-white/50 transition-all">
+                  {name}
+                </button>
+              ))}
+            </div>
 
-        {result && (
-          <div className="space-y-4" style={{ animation: "fadeIn 0.5s ease-out" }}>
-
-            <div className={`p-5 rounded-2xl border ${cfg.border} bg-gradient-to-br ${cfg.bg}`}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="text-xl font-black text-white">{result.name}</h2>
-                  <p className="text-white/40 text-sm mt-0.5">{result.ticker} · {result.sector}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-white/30 text-xs">현재가</p>
-                  <p className="text-white font-bold text-lg">{fmt(result.price)}원</p>
-                </div>
+            {error && (
+              <div className="mb-4 p-4 rounded-xl border border-red-500/40 bg-red-500/10 text-red-300 text-sm">
+                ⚠️ {error}
               </div>
-            </div>
-
-            <div className={`p-6 rounded-2xl border ${cfg.border} bg-white/5 text-center`}>
-              <p className="text-white/30 text-xs tracking-widest uppercase mb-4">VALUE SCORE</p>
-              <ValueGauge score={result.total_score} grade={grade} />
-              <p className={`mt-4 text-base font-black ${cfg.text}`}>{result.grade.label}</p>
-            </div>
-
-            <div className="text-center">
-              <span className="text-white/20 text-xs">아래로 스크롤해서 상세 분석 보기</span>
-              <div className="mt-1 flex justify-center">
-                <svg className="w-4 h-4 text-white/20 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-            </div>
-
-            <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
-              <h3 className="text-white/40 text-xs tracking-widest uppercase mb-4">카테고리별 점수</h3>
-              <ScoreBar label="🛡️ 안전마진 & 자본 효율성" score={result.categories.a.total} max={35} color="#60a5fa" />
-              <ScoreBar label="🤝 주주환원 의지"           score={result.categories.b.total} max={35} color="#34d399" />
-              <ScoreBar label="🚀 비즈니스 퀄리티"         score={result.categories.c.total} max={30} color="#a78bfa" />
-            </div>
-
-            <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
-              <h3 className="text-white/40 text-xs tracking-widest uppercase mb-3">핵심 지표</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <MetricCard label="PER"       value={km.per}            status={km.per_status} />
-                <MetricCard label="PBR"       value={km.pbr}            status={km.pbr_status} />
-                <MetricCard label="ROE"       value={km.roe}  unit="%"  status={km.roe_status} highlight />
-                <MetricCard label="배당수익률" value={km.dividend_yield} unit="%" status={km.dy_status} highlight />
-                <div className="col-span-2">
-                  <DebtCard value={km.debt_to_equity} grade={km.debt_grade} />
-                </div>
-              </div>
-              <p className="text-white/20 text-xs text-right mt-3">📊 네이버 증권 기준</p>
-            </div>
-
-            {km.dividend_yield > 0 && (
-              <DividendSimulator dividendYield={km.dividend_yield} />
             )}
 
-            <button onClick={handleShare}
-              className="w-full py-4 rounded-2xl font-black text-lg text-white active:scale-95 transition-transform"
-              style={{ background: "linear-gradient(135deg,#fbbf24,#f97316)", boxShadow: "0 0 30px #fbbf2430" }}>
-              📤 카카오톡으로 결과 공유하기
-            </button>
+            {result && (
+              <div className="space-y-4" style={{ animation: "fadeIn 0.5s ease-out" }}>
+                <div className={`p-5 rounded-2xl border ${cfg.border} bg-gradient-to-br ${cfg.bg}`}>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h2 className="text-xl font-black text-white">{result.name}</h2>
+                      <p className="text-white/40 text-sm mt-0.5">{result.ticker} · {result.sector}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-white/30 text-xs">현재가</p>
+                      <p className="text-white font-bold text-lg">{fmt(result.price)}원</p>
+                    </div>
+                  </div>
+                </div>
 
-            <p className="text-white/15 text-xs text-center leading-relaxed">
-              ⚠️ 본 분석은 참고용 정보 제공 목적이며 투자 권유가 아닙니다.<br/>
-              모든 투자 판단과 책임은 투자자 본인에게 있습니다.
-            </p>
-          </div>
+                <div className={`p-6 rounded-2xl border ${cfg.border} bg-white/5 text-center`}>
+                  <p className="text-white/30 text-xs tracking-widest uppercase mb-4">VALUE SCORE</p>
+                  <ValueGauge score={result.total_score} grade={grade} />
+                  <p className={`mt-4 text-base font-black ${cfg.text}`}>{result.grade.label}</p>
+                </div>
+
+                <div className="text-center">
+                  <span className="text-white/20 text-xs">아래로 스크롤해서 상세 분석 보기</span>
+                  <div className="mt-1 flex justify-center">
+                    <svg className="w-4 h-4 text-white/20 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+
+                <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
+                  <h3 className="text-white/40 text-xs tracking-widest uppercase mb-4">카테고리별 점수</h3>
+                  <ScoreBar label="🛡️ 안전마진 & 자본 효율성" score={result.categories.a.total} max={35} color="#60a5fa" />
+                  <ScoreBar label="🤝 주주환원 의지"           score={result.categories.b.total} max={35} color="#34d399" />
+                  <ScoreBar label="🚀 비즈니스 퀄리티"         score={result.categories.c.total} max={30} color="#a78bfa" />
+                </div>
+
+                <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
+                  <h3 className="text-white/40 text-xs tracking-widest uppercase mb-3">핵심 지표</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <MetricCard label="PER"       value={km.per}            status={km.per_status} />
+                    <MetricCard label="PBR"       value={km.pbr}            status={km.pbr_status} />
+                    <MetricCard label="ROE"       value={km.roe}  unit="%"  status={km.roe_status} highlight />
+                    <MetricCard label="배당수익률" value={km.dividend_yield} unit="%" status={km.dy_status} highlight />
+                    <div className="col-span-2">
+                      <DebtCard value={km.debt_to_equity} grade={km.debt_grade} />
+                    </div>
+                  </div>
+                  <p className="text-white/20 text-xs text-right mt-3">📊 네이버 증권 기준</p>
+                </div>
+
+                {km.dividend_yield > 0 && (
+                  <DividendSimulator dividendYield={km.dividend_yield} />
+                )}
+
+                <button onClick={handleShare}
+                  className="w-full py-4 rounded-2xl font-black text-lg text-white active:scale-95 transition-transform"
+                  style={{ background: "linear-gradient(135deg,#fbbf24,#f97316)", boxShadow: "0 0 30px #fbbf2430" }}>
+                  📤 카카오톡으로 결과 공유하기
+                </button>
+
+                <p className="text-white/15 text-xs text-center leading-relaxed">
+                  ⚠️ 본 분석은 참고용 정보 제공 목적이며 투자 권유가 아닙니다.<br/>
+                  모든 투자 판단과 책임은 투자자 본인에게 있습니다.
+                </p>
+              </div>
+            )}
+          </>
         )}
+
+        {/* 랭킹 탭 */}
+        {tab === "ranking" && (
+          <RankingPage onSelectTicker={(code) => { setTicker(code); analyze(code); }} />
+        )}
+      </div>
+
+      {/* 하단 탭바 */}
+      <div className="fixed bottom-0 left-0 right-0 z-50"
+        style={{ background: "rgba(2,6,23,0.95)", backdropFilter: "blur(20px)", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+        <div className="max-w-md mx-auto flex">
+          <button onClick={() => setTab("screener")}
+            className={`flex-1 py-4 flex flex-col items-center gap-1 transition-all ${tab === "screener" ? "text-blue-400" : "text-white/30"}`}>
+            <span className="text-xl">🔍</span>
+            <span className="text-xs font-medium">종목 분석</span>
+          </button>
+          <button onClick={() => setTab("ranking")}
+            className={`flex-1 py-4 flex flex-col items-center gap-1 transition-all ${tab === "ranking" ? "text-amber-400" : "text-white/30"}`}>
+            <span className="text-xl">🏆</span>
+            <span className="text-xs font-medium">우량주 랭킹</span>
+          </button>
+        </div>
       </div>
 
       <style>{`

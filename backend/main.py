@@ -6,6 +6,7 @@ import re
 import httpx
 import psycopg2
 import os
+import asyncio
 from datetime import datetime
 
 app = FastAPI(title="가치투자 스크리닝 API", version="2.0.0")
@@ -52,7 +53,7 @@ def init_db():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS rankings (
                 id SERIAL PRIMARY KEY,
-                ticker VARCHAR(10) NOT NULL,
+                ticker VARCHAR(10) NOT NULL UNIQUE,
                 name VARCHAR(100),
                 score INTEGER,
                 grade VARCHAR(5),
@@ -408,13 +409,11 @@ async def run_full_scan(start: int = 0, end: int = 100):
             qualified.append(result)
             print(f"✅ {ticker} {result['name']} — {result['score']}점 ({result['grade']}등급)")
 
-    # DB 저장 (누적 — 기존 데이터 유지하고 추가)
     try:
         conn = get_db()
         cur = conn.cursor()
 
         for r in qualified:
-            # 이미 있으면 업데이트, 없으면 삽입
             cur.execute("""
                 INSERT INTO rankings
                 (ticker, name, score, grade, grade_label, per, pbr, roe, dividend_yield, sector, updated_at)
@@ -445,18 +444,6 @@ async def run_full_scan(start: int = 0, end: int = 100):
 
 @app.on_event("startup")
 async def startup():
-    # ticker unique 제약 추가
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("""
-            ALTER TABLE rankings ADD CONSTRAINT rankings_ticker_unique UNIQUE (ticker)
-        """)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except:
-        pass
     init_db()
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
     scheduler.add_job(run_full_scan, "cron", hour=2, minute=0, kwargs={"start": 0, "end": 9999})
@@ -471,10 +458,30 @@ def root():
 
 @app.get("/scan-now")
 async def trigger_scan(start: int = 0, end: int = 100):
-    """수동 스캔 트리거 — 구간 지정 가능"""
-    import asyncio
     asyncio.create_task(run_full_scan(start, end))
     return {"message": f"스캔 시작: {start}~{end}번째 종목. 완료까지 수분 소요됩니다."}
+
+
+@app.get("/scan-all")
+async def scan_all():
+    """전체 구간 순차 스캔 — 화면 꺼도 Railway에서 계속 실행"""
+    async def run_sequential():
+        try:
+            import FinanceDataReader as fdr
+            kospi = fdr.StockListing('KOSPI')
+            total = len(kospi['Code'].tolist())
+        except:
+            total = 1000
+        print(f"🚀 전체 순차 스캔 시작! 총 {total}개 종목")
+        for start in range(0, total, 100):
+            end = min(start + 100, total)
+            await run_full_scan(start, end)
+            print(f"⏳ {start}~{end} 완료. 30초 대기...")
+            await asyncio.sleep(30)
+        print("🎉 전체 스캔 완료!")
+
+    asyncio.create_task(run_sequential())
+    return {"message": "전체 순차 스캔 시작! Railway 로그에서 확인하세요. 화면 꺼도 됩니다 🚀"}
 
 
 @app.get("/ranking")

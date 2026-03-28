@@ -9,7 +9,7 @@ import os
 import asyncio
 from datetime import datetime
 
-app = FastAPI(title="가치투자 스크리닝 API", version="3.1.0")
+app = FastAPI(title="배당 스크리너 API", version="4.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,17 +24,15 @@ DATABASE_URL = os.environ.get(
     "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@crossover.proxy.rlwy.net:36008/railway"
 )
 
-# ── 전역 한국어 종목명 캐시 ──
 KR_NAME_MAP: dict = {}
 
 def load_kr_names():
-    """FinanceDataReader로 한국어 종목명 로드"""
     global KR_NAME_MAP
     try:
         import FinanceDataReader as fdr
-        kospi = fdr.StockListing('KOSPI')
-        kosdaq = fdr.StockListing('KOSDAQ')
         import pandas as pd
+        kospi  = fdr.StockListing('KOSPI')
+        kosdaq = fdr.StockListing('KOSDAQ')
         combined = pd.concat([kospi, kosdaq])
         KR_NAME_MAP = dict(zip(combined['Code'], combined['Name']))
         print(f"✅ 한국어 종목명 {len(KR_NAME_MAP)}개 로드 완료")
@@ -64,18 +62,18 @@ QUARTERLY_DIVIDEND = {
     "000660",
 }
 
-DIVIDEND_STABLE = {
+DIVIDEND_GROWTH_10Y = set()
+
+DIVIDEND_GROWTH_5Y = {
+    "086790", "105560", "055550",
+}
+
+DIVIDEND_STABLE_3Y = {
     "005930", "005935",
     "005380", "005385", "005387",
     "000270", "000272",
     "086790", "105560", "055550", "316140",
     "015760",
-}
-
-DIVIDEND_GROWTH_10Y = set()
-
-DIVIDEND_GROWTH_5Y = {
-    "086790", "105560", "055550",
 }
 
 BUYBACK_RATIO = {
@@ -90,14 +88,6 @@ TREASURY_RATIO = {
     "005380": 3.0, "005385": 3.0, "005387": 3.0,
     "000270": 1.5, "000272": 1.5,
     "086790": 1.0, "105560": 1.0, "055550": 1.0,
-}
-
-GLOBAL_BRAND = {
-    "005930", "005935",
-    "005380", "005385", "005387",
-    "000270", "000272",
-    "051910", "051915",
-    "068270",
 }
 
 
@@ -126,11 +116,9 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT NOW()
             )
         """)
-        # name_kr 컬럼 없으면 추가
         try:
             cur.execute("ALTER TABLE rankings ADD COLUMN IF NOT EXISTS name_kr VARCHAR(100)")
-        except:
-            pass
+        except: pass
         cur.execute("""
             CREATE TABLE IF NOT EXISTS scan_log (
                 id SERIAL PRIMARY KEY,
@@ -206,15 +194,23 @@ async def fetch_naver_metrics(ticker_code: str) -> dict:
 
 
 def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code: str) -> dict:
+    """
+    카테고리 A: 이익 창출력 / 저평가 (35점)
+    - PER          15점
+    - ROE           5점
+    - PBR           5점
+    - 이익 지속성   5점
+    - 단독 상장     5점
+    """
     scores = {}
     details = {}
 
+    # PER (15점)
     per = naver.get("per") or info.get("trailingPE") or info.get("forwardPE")
     if per and per > 0:
-        if per < 5:       scores["per"] = 18
-        elif per < 8:     scores["per"] = 13
-        elif per < 10:    scores["per"] = 8
-        elif per < 15:    scores["per"] = 4
+        if per < 5:       scores["per"] = 15
+        elif per < 8:     scores["per"] = 10
+        elif per < 10:    scores["per"] = 5
         else:             scores["per"] = 0
         details["per"] = round(per, 2)
         if per < 8:       details["per_status"] = "저평가"
@@ -225,6 +221,28 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
         details["per"] = None
         details["per_status"] = None
 
+    # ROE (5점)
+    roe_raw = info.get("returnOnEquity")
+    roe_yf  = round(roe_raw * 100, 2) if roe_raw else None
+    roe_nav = naver.get("roe")
+    roe_pct = roe_yf or roe_nav
+
+    if roe_pct:
+        if roe_pct >= 15:   scores["roe"] = 5
+        elif roe_pct >= 10: scores["roe"] = 3
+        elif roe_pct >= 5:  scores["roe"] = 1
+        else:               scores["roe"] = 0
+        details["roe"] = round(roe_pct, 2)
+        if roe_pct >= 15:   details["roe_status"] = "우수"
+        elif roe_pct >= 10: details["roe_status"] = "양호"
+        elif roe_pct >= 5:  details["roe_status"] = "보통"
+        else:               details["roe_status"] = "저조"
+    else:
+        scores["roe"] = 0
+        details["roe"] = None
+        details["roe_status"] = None
+
+    # PBR (5점)
     pbr = naver.get("pbr") or info.get("priceToBook")
     if not pbr:
         price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or 0
@@ -245,6 +263,7 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
         details["pbr"] = None
         details["pbr_status"] = None
 
+    # 이익 지속성 (5점)
     op_margins = hist_financials.get("operating_margins", [])
     if len(op_margins) >= 3:
         all_positive = all(m > 0 for m in op_margins[-4:] if m is not None)
@@ -262,20 +281,31 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
         scores["stability"] = 3
         details["stability"] = "데이터 부족"
 
+    # 단독 상장 (5점)
     if ticker_code in DOUBLE_LISTED:
         scores["listing"] = 0
         details["listing"] = "중복상장"
     else:
-        scores["listing"] = 4
+        scores["listing"] = 5
         details["listing"] = "단독 상장 ✅"
 
-    return {"total": sum(scores.values()), "max": 32, "scores": scores, "details": details}
+    return {"total": sum(scores.values()), "max": 35, "scores": scores, "details": details}
 
 
 def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
+    """
+    카테고리 B: 주주환원 (40점)
+    - 배당수익률      10점
+    - 분기배당         5점
+    - 배당 연속인상    5점
+    - 자사주 소각 여부 7점
+    - 연간 소각 비율   8점
+    - 자사주 보유 비율 5점
+    """
     scores = {}
     details = {}
 
+    # 배당수익률 (10점)
     price    = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or 0
     div_rate = info.get("dividendRate", 0) or 0
     dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
@@ -298,41 +328,40 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         details["dividend_yield"] = 0.0
         details["dy_status"] = None
 
+    # 분기배당 (5점)
     if ticker_code in QUARTERLY_DIVIDEND:
-        scores["dividend_freq"] = 4
+        scores["dividend_freq"] = 5
         details["dividend_freq"] = "분기 배당 ✅"
     else:
         scores["dividend_freq"] = 0
         details["dividend_freq"] = "연 1회 배당"
 
+    # 배당 연속인상 (5점)
     if ticker_code in DIVIDEND_GROWTH_10Y:
-        scores["dividend_stability"] = 4
+        scores["dividend_stability"] = 5
         details["dividend_stability"] = "10년+ 연속 인상 ✅"
     elif ticker_code in DIVIDEND_GROWTH_5Y:
-        scores["dividend_stability"] = 3
+        scores["dividend_stability"] = 4
         details["dividend_stability"] = "5년+ 연속 인상 ✅"
-    elif ticker_code in DIVIDEND_STABLE:
-        scores["dividend_stability"] = 2
+    elif ticker_code in DIVIDEND_STABLE_3Y:
+        scores["dividend_stability"] = 3
         details["dividend_stability"] = "3년+ 배당 유지"
     else:
-        payout = info.get("payoutRatio", 0) or 0
-        if div_rate > 0 and 0 < payout < 0.8:
-            scores["dividend_stability"] = 1
-            details["dividend_stability"] = "배당 지속 중"
-        else:
-            scores["dividend_stability"] = 0
-            details["dividend_stability"] = "배당 이력 불명확"
+        scores["dividend_stability"] = 0
+        details["dividend_stability"] = "배당 이력 불명확"
 
+    # 자사주 소각 여부 (7점)
     if ticker_code in BUYBACK_EXCELLENT:
-        scores["buyback"] = 6
+        scores["buyback"] = 7
         details["buyback"] = "정기 자사주 소각 ✅"
     else:
         scores["buyback"] = 0
         details["buyback"] = "소각 미실시"
 
+    # 연간 소각 비율 (8점)
     ratio = BUYBACK_RATIO.get(ticker_code, 0)
     if ratio > 2.0:
-        scores["buyback_ratio"] = 7
+        scores["buyback_ratio"] = 8
         details["buyback_ratio"] = f"연간 소각 {ratio}% (매우 강함)"
     elif ratio > 1.5:
         scores["buyback_ratio"] = 5
@@ -344,12 +373,13 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         scores["buyback_ratio"] = 0
         details["buyback_ratio"] = "소각 비율 미미"
 
+    # 자사주 보유 비율 (5점)
     treasury = TREASURY_RATIO.get(ticker_code, -1)
     if treasury == -1:
-        scores["treasury"] = 4
+        scores["treasury"] = 5
         details["treasury"] = "자사주 없음 ✅"
     elif treasury < 2.0:
-        scores["treasury"] = 3
+        scores["treasury"] = 4
         details["treasury"] = f"자사주 {treasury}% (양호)"
     elif treasury < 5.0:
         scores["treasury"] = 2
@@ -358,58 +388,73 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         scores["treasury"] = 0
         details["treasury"] = f"자사주 {treasury}% (과다)"
 
-    sector = info.get("sector", "")
-    dte    = info.get("debtToEquity")
-    if sector in ["Financial Services", "금융"]:
-        scores["debt_safety"]     = 4
-        details["debt_to_equity"] = None
-        details["debt_grade"]     = "금융업 예외"
-    elif dte is not None:
-        if dte < 50:
-            scores["debt_safety"]     = 6
-            details["debt_to_equity"] = round(dte, 1)
-            details["debt_grade"]     = "매우 안전"
-        elif dte < 100:
-            scores["debt_safety"]     = 5
-            details["debt_to_equity"] = round(dte, 1)
-            details["debt_grade"]     = "안전"
-        elif dte < 200:
-            scores["debt_safety"]     = 3
-            details["debt_to_equity"] = round(dte, 1)
-            details["debt_grade"]     = "양호"
-        elif dte < 400:
-            scores["debt_safety"]     = 1
-            details["debt_to_equity"] = round(dte, 1)
-            details["debt_grade"]     = "주의"
-        else:
-            scores["debt_safety"]     = 0
-            details["debt_to_equity"] = round(dte, 1)
-            details["debt_grade"]     = "위험"
-    else:
-        scores["debt_safety"]     = 2
-        details["debt_to_equity"] = None
-        details["debt_grade"]     = "N/A"
-
-    return {"total": sum(scores.values()), "max": 41, "scores": scores, "details": details}
+    return {"total": sum(scores.values()), "max": 40, "scores": scores, "details": details}
 
 
-def calc_category_c(info: dict, ticker_code: str) -> dict:
+def calc_category_c(info: dict, ticker_code: str, hist_financials: dict) -> dict:
+    """
+    카테고리 C: 비즈니스 경쟁력 (25점)
+    - 영업이익률  8점
+    - 매출 성장률 7점
+    - 유동비율    5점
+    - 해자        5점
+    """
     scores = {}
     details = {}
 
-    scores["growth"] = 5
-    details["growth"] = "수동 입력 필요"
+    # 영업이익률 (8점)
+    op_margins = hist_financials.get("operating_margins", [])
+    op_margin  = op_margins[-1] * 100 if op_margins else None
+    if op_margin is None:
+        raw = info.get("operatingMargins")
+        if raw: op_margin = raw * 100
 
-    scores["management"] = 5
-    details["management"] = "수동 입력 필요"
-
-    if ticker_code in GLOBAL_BRAND:
-        scores["brand"] = 4
-        details["brand"] = "세계적 브랜드 보유 ✅"
+    if op_margin is not None:
+        if op_margin >= 15:   scores["op_margin"] = 8
+        elif op_margin >= 10: scores["op_margin"] = 6
+        elif op_margin >= 5:  scores["op_margin"] = 3
+        else:                 scores["op_margin"] = 0
+        details["op_margin"] = round(op_margin, 2)
     else:
-        scores["brand"] = 0
-        details["brand"] = "글로벌 브랜드 없음"
+        scores["op_margin"] = 0
+        details["op_margin"] = None
 
+    # 매출 성장률 (7점)
+    rev_growth = hist_financials.get("revenue_growth")
+    if rev_growth is None:
+        raw = info.get("revenueGrowth")
+        if raw: rev_growth = raw * 100
+
+    if rev_growth is not None:
+        if rev_growth >= 10:   scores["rev_growth"] = 7
+        elif rev_growth >= 5:  scores["rev_growth"] = 5
+        elif rev_growth >= 0:  scores["rev_growth"] = 3
+        else:                  scores["rev_growth"] = 0
+        details["rev_growth"] = round(rev_growth, 2)
+    else:
+        scores["rev_growth"] = 3
+        details["rev_growth"] = None
+
+    # 유동비율 (5점) — 금융주 예외처리
+    sector = info.get("sector", "")
+    current_ratio = info.get("currentRatio")
+    if sector in ["Financial Services", "금융"]:
+        scores["current_ratio"] = 5
+        details["current_ratio"] = None
+        details["current_ratio_status"] = "금융업 예외"
+    elif current_ratio is not None:
+        if current_ratio >= 2.0:   scores["current_ratio"] = 5
+        elif current_ratio >= 1.5: scores["current_ratio"] = 3
+        elif current_ratio >= 1.0: scores["current_ratio"] = 1
+        else:                      scores["current_ratio"] = 0
+        details["current_ratio"] = round(current_ratio, 2)
+        details["current_ratio_status"] = None
+    else:
+        scores["current_ratio"] = 2
+        details["current_ratio"] = None
+        details["current_ratio_status"] = None
+
+    # 해자 — 시가총액 (5점)
     market_cap = info.get("marketCap", 0) or 0
     if market_cap > 10_000_000_000_000:
         scores["moat"] = 5
@@ -421,7 +466,7 @@ def calc_category_c(info: dict, ticker_code: str) -> dict:
         scores["moat"] = 1
         details["moat"] = "소형주 (약한 해자)"
 
-    return {"total": sum(scores.values()), "max": 27, "scores": scores, "details": details}
+    return {"total": sum(scores.values()), "max": 25, "scores": scores, "details": details}
 
 
 def get_grade(score: int) -> dict:
@@ -448,6 +493,7 @@ async def analyze_ticker(ticker_code: str) -> dict | None:
             return None
 
         op_margins = []
+        revenues   = []
         try:
             income = stock.income_stmt
             if income is not None and not income.empty:
@@ -457,16 +503,25 @@ async def analyze_ticker(ticker_code: str) -> dict | None:
                         rev    = income.loc["Total Revenue", col]
                         if rev and rev != 0:
                             op_margins.append(round(float(op_inc / rev), 4))
+                            revenues.append(float(rev))
                     except: pass
         except: pass
 
-        cat_a = calc_category_a(info, {"operating_margins": op_margins}, naver, ticker_code)
+        rev_growth = None
+        if len(revenues) >= 2:
+            rev_growth = round(((revenues[0] - revenues[-1]) / abs(revenues[-1])) * 100, 2)
+
+        hist = {
+            "operating_margins": op_margins,
+            "revenue_growth":    rev_growth,
+        }
+
+        cat_a = calc_category_a(info, hist, naver, ticker_code)
         cat_b = calc_category_b(info, naver, ticker_code)
-        cat_c = calc_category_c(info, ticker_code)
+        cat_c = calc_category_c(info, ticker_code, hist)
         total = min(100, cat_a["total"] + cat_b["total"] + cat_c["total"])
         grade = get_grade(total)
 
-        # 한국어 이름 가져오기
         name_kr = KR_NAME_MAP.get(ticker_code, "")
         name_en = info.get("longName") or info.get("shortName") or ticker_code
 
@@ -479,7 +534,7 @@ async def analyze_ticker(ticker_code: str) -> dict | None:
             "grade_label":    grade["label"],
             "per":            cat_a["details"].get("per"),
             "pbr":            cat_a["details"].get("pbr"),
-            "roe":            naver.get("roe") or (round(info.get("returnOnEquity") * 100, 2) if info.get("returnOnEquity") else None),
+            "roe":            cat_a["details"].get("roe"),
             "dividend_yield": cat_b["details"].get("dividend_yield"),
             "sector":         info.get("sector", "N/A"),
         }
@@ -498,7 +553,6 @@ async def run_full_scan(start: int = 0, end: int = 100):
         print(f"종목 리스트 수집 실패: {e}")
         tickers = [
             "005930", "000660", "005380", "005387", "000270",
-            "051910", "035420", "068270", "207940", "006400",
             "086790", "105560", "055550", "316140", "017670",
             "034730", "003550", "015760", "032830", "028260",
         ]
@@ -548,7 +602,7 @@ async def run_full_scan(start: int = 0, end: int = 100):
 @app.on_event("startup")
 async def startup():
     init_db()
-    load_kr_names()  # 한국어 종목명 로드
+    load_kr_names()
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
     scheduler.add_job(run_full_scan, "cron", hour=2, minute=0, kwargs={"start": 0, "end": 9999})
     scheduler.start()
@@ -557,12 +611,11 @@ async def startup():
 
 @app.get("/")
 def root():
-    return {"message": "가치투자 스크리닝 API v3.1 🚀"}
+    return {"message": "배당 스크리너 API v4.0 🚀"}
 
 
 @app.get("/search")
 async def search(q: str):
-    """종목명 또는 코드로 검색"""
     if not q or len(q) < 1:
         return {"results": []}
     q = q.strip()
@@ -636,7 +689,7 @@ async def get_ranking():
             "rankings": [
                 {
                     "ticker":         r[0],
-                    "name":           r[2] or r[1],  # 한국어 이름 우선
+                    "name":           r[2] or r[1],
                     "name_en":        r[1],
                     "score":          r[3],
                     "grade":          r[4],
@@ -673,18 +726,20 @@ async def debug(ticker_code: str):
             dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
             return {
                 "yfinance": {
-                    "priceToBook":    info.get("priceToBook"),
-                    "bookValue":      info.get("bookValue"),
-                    "trailingPE":     info.get("trailingPE"),
-                    "debtToEquity":   info.get("debtToEquity"),
-                    "returnOnEquity": info.get("returnOnEquity"),
-                    "dividendYield":  info.get("dividendYield"),
-                    "dividendRate":   div_rate,
-                    "dy_calc":        dy_calc,
-                    "sector":         info.get("sector"),
+                    "priceToBook":      info.get("priceToBook"),
+                    "trailingPE":       info.get("trailingPE"),
+                    "returnOnEquity":   info.get("returnOnEquity"),
+                    "debtToEquity":     info.get("debtToEquity"),
+                    "dividendYield":    info.get("dividendYield"),
+                    "dividendRate":     div_rate,
+                    "dy_calc":          dy_calc,
+                    "operatingMargins": info.get("operatingMargins"),
+                    "revenueGrowth":    info.get("revenueGrowth"),
+                    "currentRatio":     info.get("currentRatio"),
+                    "sector":           info.get("sector"),
                 },
-                "naver":      naver,
-                "name_kr":    KR_NAME_MAP.get(ticker_code, "없음"),
+                "naver":              naver,
+                "name_kr":            KR_NAME_MAP.get(ticker_code, "없음"),
                 "is_double_listed":   ticker_code in DOUBLE_LISTED,
                 "has_buyback_policy": ticker_code in BUYBACK_EXCELLENT,
                 "quarterly_dividend": ticker_code in QUARTERLY_DIVIDEND,
@@ -714,6 +769,7 @@ async def analyze(ticker_code: str):
             raise HTTPException(status_code=404, detail=f"종목을 찾을 수 없습니다: {ticker_code}")
 
         op_margins = []
+        revenues   = []
         try:
             income = stock.income_stmt
             if income is not None and not income.empty:
@@ -723,15 +779,24 @@ async def analyze(ticker_code: str):
                         rev    = income.loc["Total Revenue", col]
                         if rev and rev != 0:
                             op_margins.append(round(float(op_inc / rev), 4))
+                            revenues.append(float(rev))
                     except: pass
         except: pass
 
-        cat_a = calc_category_a(info, {"operating_margins": op_margins}, naver, ticker_code)
+        rev_growth = None
+        if len(revenues) >= 2:
+            rev_growth = round(((revenues[0] - revenues[-1]) / abs(revenues[-1])) * 100, 2)
+
+        hist = {
+            "operating_margins": op_margins,
+            "revenue_growth":    rev_growth,
+        }
+
+        cat_a = calc_category_a(info, hist, naver, ticker_code)
         cat_b = calc_category_b(info, naver, ticker_code)
-        cat_c = calc_category_c(info, ticker_code)
+        cat_c = calc_category_c(info, ticker_code, hist)
         total = min(100, cat_a["total"] + cat_b["total"] + cat_c["total"])
 
-        # 한국어 이름
         name_kr = KR_NAME_MAP.get(ticker_code, "")
         name_en = info.get("longName") or info.get("shortName") or ticker_code
 
@@ -751,12 +816,13 @@ async def analyze(ticker_code: str):
                 "per_status":     cat_a["details"].get("per_status"),
                 "pbr":            cat_a["details"].get("pbr"),
                 "pbr_status":     cat_a["details"].get("pbr_status"),
-                "roe":            naver.get("roe") or (round(info.get("returnOnEquity") * 100, 2) if info.get("returnOnEquity") else None),
-                "roe_status":     None,
+                "roe":            cat_a["details"].get("roe"),
+                "roe_status":     cat_a["details"].get("roe_status"),
                 "dividend_yield": cat_b["details"].get("dividend_yield"),
                 "dy_status":      cat_b["details"].get("dy_status"),
-                "debt_to_equity": cat_b["details"].get("debt_to_equity"),
-                "debt_grade":     cat_b["details"].get("debt_grade"),
+                "op_margin":      cat_c["details"].get("op_margin"),
+                "rev_growth":     cat_c["details"].get("rev_growth"),
+                "current_ratio":  cat_c["details"].get("current_ratio"),
                 "buyback_policy": cat_b["details"].get("buyback"),
                 "listing":        cat_a["details"].get("listing"),
             }

@@ -9,7 +9,7 @@ import os
 import asyncio
 from datetime import datetime
 
-app = FastAPI(title="배당 스크리너 API", version="4.0.0")
+app = FastAPI(title="배당 스크리너 API", version="4.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,13 +54,6 @@ BUYBACK_EXCELLENT = {
     "000270", "000272",
     "005930", "005935",
     "086790", "105560", "055550",
-}
-
-QUARTERLY_DIVIDEND = {
-    "005930", "005935",
-    "086790", "105560", "055550", "316140",
-    "000660",
-    "005380", "005385", "005387",  # 현대차 우선주 추가
 }
 
 DIVIDEND_GROWTH_10Y = set()
@@ -136,6 +129,24 @@ def init_db():
         print(f"DB 초기화 실패: {e}")
 
 
+def detect_quarterly_dividend(stock) -> bool:
+    """배당 히스토리로 분기배당 여부 자동 감지"""
+    try:
+        dividends = stock.dividends
+        if dividends is None or len(dividends) == 0:
+            return False
+        # 최근 2년치 배당 횟수 확인
+        recent = dividends.last("2Y")
+        if len(recent) == 0:
+            recent = dividends.last("3Y")
+        if len(recent) == 0:
+            return False
+        # 2년간 배당 횟수가 5회 이상이면 분기배당으로 판단
+        return len(recent) >= 5
+    except:
+        return False
+
+
 async def fetch_naver_metrics(ticker_code: str) -> dict:
     result = {
         "per": None, "pbr": None, "eps": None,
@@ -195,14 +206,6 @@ async def fetch_naver_metrics(ticker_code: str) -> dict:
 
 
 def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code: str) -> dict:
-    """
-    카테고리 A: 이익 창출력 / 저평가 (35점)
-    - PER          15점
-    - ROE           5점
-    - PBR           5점
-    - 이익 지속성   5점
-    - 단독 상장     5점
-    """
     scores = {}
     details = {}
 
@@ -222,11 +225,11 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
         details["per"] = None
         details["per_status"] = None
 
-    # ROE (5점)
+    # ROE (5점) — 네이버 우선
     roe_raw = info.get("returnOnEquity")
     roe_yf  = round(roe_raw * 100, 2) if roe_raw else None
     roe_nav = naver.get("roe")
-    roe_pct = roe_nav or roe_yf  # 네이버 우선으로 변경
+    roe_pct = roe_nav or roe_yf  # 네이버 우선
 
     if roe_pct:
         if roe_pct >= 15:   scores["roe"] = 5
@@ -293,16 +296,7 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
     return {"total": sum(scores.values()), "max": 35, "scores": scores, "details": details}
 
 
-def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
-    """
-    카테고리 B: 주주환원 (40점)
-    - 배당수익률      10점
-    - 분기배당         5점
-    - 배당 연속인상    5점
-    - 자사주 소각 여부 7점
-    - 연간 소각 비율   8점
-    - 자사주 보유 비율 5점
-    """
+def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: bool = False) -> dict:
     scores = {}
     details = {}
 
@@ -329,8 +323,8 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         details["dividend_yield"] = 0.0
         details["dy_status"] = None
 
-    # 분기배당 (5점)
-    if ticker_code in QUARTERLY_DIVIDEND:
+    # 분기배당 (5점) — 자동 감지
+    if is_quarterly:
         scores["dividend_freq"] = 5
         details["dividend_freq"] = "분기 배당 ✅"
     else:
@@ -348,8 +342,13 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
         scores["dividend_stability"] = 3
         details["dividend_stability"] = "3년+ 배당 유지"
     else:
-        scores["dividend_stability"] = 0
-        details["dividend_stability"] = "배당 이력 불명확"
+        payout = info.get("payoutRatio", 0) or 0
+        if div_rate > 0 and 0 < payout < 0.8:
+            scores["dividend_stability"] = 1
+            details["dividend_stability"] = "배당 지속 중"
+        else:
+            scores["dividend_stability"] = 0
+            details["dividend_stability"] = "배당 이력 불명확"
 
     # 자사주 소각 여부 (7점)
     if ticker_code in BUYBACK_EXCELLENT:
@@ -393,13 +392,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str) -> dict:
 
 
 def calc_category_c(info: dict, ticker_code: str, hist_financials: dict) -> dict:
-    """
-    카테고리 C: 비즈니스 경쟁력 (25점)
-    - 영업이익률  8점
-    - 매출 성장률 7점
-    - 유동비율    5점
-    - 해자        5점
-    """
     scores = {}
     details = {}
 
@@ -436,7 +428,7 @@ def calc_category_c(info: dict, ticker_code: str, hist_financials: dict) -> dict
         scores["rev_growth"] = 3
         details["rev_growth"] = None
 
-    # 유동비율 (5점) — 금융주 예외처리
+    # 유동비율 (5점) — 금융주 예외
     sector = info.get("sector", "")
     current_ratio = info.get("currentRatio")
     if sector in ["Financial Services", "금융"]:
@@ -512,13 +504,16 @@ async def analyze_ticker(ticker_code: str) -> dict | None:
         if len(revenues) >= 2:
             rev_growth = round(((revenues[0] - revenues[-1]) / abs(revenues[-1])) * 100, 2)
 
+        # 분기배당 자동 감지
+        is_quarterly = detect_quarterly_dividend(stock)
+
         hist = {
             "operating_margins": op_margins,
             "revenue_growth":    rev_growth,
         }
 
         cat_a = calc_category_a(info, hist, naver, ticker_code)
-        cat_b = calc_category_b(info, naver, ticker_code)
+        cat_b = calc_category_b(info, naver, ticker_code, is_quarterly)
         cat_c = calc_category_c(info, ticker_code, hist)
         total = min(100, cat_a["total"] + cat_b["total"] + cat_c["total"])
         grade = get_grade(total)
@@ -612,7 +607,7 @@ async def startup():
 
 @app.get("/")
 def root():
-    return {"message": "배당 스크리너 API v4.0 🚀"}
+    return {"message": "배당 스크리너 API v4.1 🚀"}
 
 
 @app.get("/search")
@@ -725,6 +720,7 @@ async def debug(ticker_code: str):
             price    = p
             div_rate = info.get("dividendRate", 0) or 0
             dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
+            is_quarterly = detect_quarterly_dividend(stock)
             return {
                 "yfinance": {
                     "priceToBook":      info.get("priceToBook"),
@@ -741,9 +737,9 @@ async def debug(ticker_code: str):
                 },
                 "naver":              naver,
                 "name_kr":            KR_NAME_MAP.get(ticker_code, "없음"),
+                "is_quarterly":       is_quarterly,
                 "is_double_listed":   ticker_code in DOUBLE_LISTED,
                 "has_buyback_policy": ticker_code in BUYBACK_EXCELLENT,
-                "quarterly_dividend": ticker_code in QUARTERLY_DIVIDEND,
                 "buyback_ratio":      BUYBACK_RATIO.get(ticker_code, 0),
                 "treasury_ratio":     TREASURY_RATIO.get(ticker_code, -1),
             }
@@ -788,13 +784,16 @@ async def analyze(ticker_code: str):
         if len(revenues) >= 2:
             rev_growth = round(((revenues[0] - revenues[-1]) / abs(revenues[-1])) * 100, 2)
 
+        # 분기배당 자동 감지
+        is_quarterly = detect_quarterly_dividend(stock)
+
         hist = {
             "operating_margins": op_margins,
             "revenue_growth":    rev_growth,
         }
 
         cat_a = calc_category_a(info, hist, naver, ticker_code)
-        cat_b = calc_category_b(info, naver, ticker_code)
+        cat_b = calc_category_b(info, naver, ticker_code, is_quarterly)
         cat_c = calc_category_c(info, ticker_code, hist)
         total = min(100, cat_a["total"] + cat_b["total"] + cat_c["total"])
 

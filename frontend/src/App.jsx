@@ -307,7 +307,7 @@ function RankingPage({ onSelectTicker }) {
       .catch(() => setLoading(false));
   }, []);
 
-  const SECTOR_TAG: Record<string, { label: string; style: string }> = {
+  const SECTOR_TAG = {
     "Financial Services": { label: "금융", style: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
     "Utilities":          { label: "유틸리티", style: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" },
     "Consumer Cyclical":  { label: "소비재", style: "bg-pink-500/20 text-pink-300 border-pink-500/30" },

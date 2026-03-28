@@ -296,6 +296,8 @@ function RankingPage({ onSelectTicker }) {
   const [lastScan, setLastScan] = useState(null);
   const [loading,  setLoading]  = useState(true);
 
+  const hasFinancial = rankings.some(r => r.sector === "Financial Services");
+
   useEffect(() => {
     fetch(`${API_BASE}/ranking`)
       .then(r => r.json())
@@ -307,17 +309,6 @@ function RankingPage({ onSelectTicker }) {
       .catch(() => setLoading(false));
   }, []);
 
-  const SECTOR_TAG = {
-    "Financial Services": { label: "금융", style: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    "Utilities":          { label: "유틸리티", style: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" },
-    "Consumer Cyclical":  { label: "소비재", style: "bg-pink-500/20 text-pink-300 border-pink-500/30" },
-    "Industrials":        { label: "산업재", style: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
-    "Energy":             { label: "에너지", style: "bg-red-500/20 text-red-300 border-red-500/30" },
-    "Technology":         { label: "기술", style: "bg-violet-500/20 text-violet-300 border-violet-500/30" },
-    "Healthcare":         { label: "헬스케어", style: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" },
-    "Communication Services": { label: "통신", style: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30" },
-  };
-
   return (
     <div className="space-y-4">
       <div>
@@ -328,6 +319,17 @@ function RankingPage({ onSelectTicker }) {
             : "데이터 로딩 중..."}
         </p>
       </div>
+
+      {/* 금융주 안내문 */}
+      {hasFinancial && (
+        <div className="p-3 rounded-xl border border-blue-500/30 bg-blue-500/10 flex items-start gap-2">
+          <span className="text-blue-300 text-sm shrink-0">ⓘ</span>
+          <p className="text-blue-300/80 text-xs leading-relaxed">
+            <span className="font-bold text-blue-300">금융</span> 태그 종목은 업종 특성상 부채비율·유동비율 항목이 예외 처리되어 점수가 상대적으로 높게 나올 수 있습니다. 투자 시 참고하세요.
+          </p>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-12 text-white/30">분석 중...</div>
       ) : rankings.length === 0 ? (
@@ -338,8 +340,8 @@ function RankingPage({ onSelectTicker }) {
       ) : (
         <div className="space-y-3">
           {rankings.map((r, i) => {
-            const cfg     = GRADE_CONFIG[r.grade] || GRADE_CONFIG["D"];
-            const secTag  = SECTOR_TAG[r.sector];
+            const cfg = GRADE_CONFIG[r.grade] || GRADE_CONFIG["D"];
+            const isFinancial = r.sector === "Financial Services";
             return (
               <div key={r.ticker}
                 onClick={() => onSelectTicker(r.ticker)}
@@ -354,9 +356,9 @@ function RankingPage({ onSelectTicker }) {
                       <span className={`text-xs px-2 py-0.5 rounded-full border ${cfg.border} ${cfg.text} shrink-0`}>
                         {r.grade}
                       </span>
-                      {secTag && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full border ${secTag.style} shrink-0`}>
-                          {secTag.label}
+                      {isFinancial && (
+                        <span className="text-xs px-2 py-0.5 rounded-full border border-blue-500/30 bg-blue-500/20 text-blue-300 shrink-0">
+                          금융
                         </span>
                       )}
                     </div>

@@ -60,6 +60,7 @@ QUARTERLY_DIVIDEND = {
     "005930", "005935",
     "086790", "105560", "055550", "316140",
     "000660",
+    "005380", "005385", "005387",  # 현대차 우선주 추가
 }
 
 DIVIDEND_GROWTH_10Y = set()
@@ -225,7 +226,7 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
     roe_raw = info.get("returnOnEquity")
     roe_yf  = round(roe_raw * 100, 2) if roe_raw else None
     roe_nav = naver.get("roe")
-    roe_pct = roe_yf or roe_nav
+    roe_pct = roe_nav or roe_yf  # 네이버 우선으로 변경
 
     if roe_pct:
         if roe_pct >= 15:   scores["roe"] = 5

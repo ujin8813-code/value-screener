@@ -36,14 +36,11 @@ function ValueGauge({ score, grade }) {
     return () => clearTimeout(t);
   }, [score]);
 
-  // 넉넉한 viewBox — 50마커가 왼쪽 상단으로 나가는 문제 해결
   const W = 360, H = 210;
   const CX = 180, CY = 155, R = 105;
   const circ = Math.PI * R;
   const prog = (anim / 100) * circ;
   const col = GRADE_CONFIG[grade]?.color || "#f87171";
-
-  // 왼쪽=0점(π), 오른쪽=100점(0)
   const scoreToRad = (s) => Math.PI * (1 - s / 100);
 
   const markers = [
@@ -67,13 +64,13 @@ function ValueGauge({ score, grade }) {
             </filter>
           </defs>
 
-          {/* 배경 호 */}
+          {/* 배경 호 — butt으로 정확한 끝점 */}
           <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
-            fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="16" strokeLinecap="round"/>
+            fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="16" strokeLinecap="butt"/>
 
-          {/* 점수 호 */}
+          {/* 점수 호 — butt으로 정확한 끝점 */}
           <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
-            fill="none" stroke={col} strokeWidth="16" strokeLinecap="round"
+            fill="none" stroke={col} strokeWidth="16" strokeLinecap="butt"
             strokeDasharray={`${prog.toFixed(1)} ${circ.toFixed(1)}`}
             filter="url(#glow)"
             style={{ transition: "stroke-dasharray 1.4s cubic-bezier(0.34,1.56,0.64,1)" }}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -314,7 +314,6 @@ function RankingPage({ onSelectTicker }) {
             : "데이터 로딩 중..."}
         </p>
       </div>
-
       {loading ? (
         <div className="text-center py-12 text-white/30">분석 중...</div>
       ) : rankings.length === 0 ? (
@@ -337,9 +336,7 @@ function RankingPage({ onSelectTicker }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-white font-bold text-sm truncate">{r.name}</p>
-                      <span className={`text-xs px-2 py-0.5 rounded-full border ${cfg.border} ${cfg.text} shrink-0`}>
-                        {r.grade}
-                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${cfg.border} ${cfg.text} shrink-0`}>{r.grade}</span>
                     </div>
                     <p className="text-white/30 text-xs mt-0.5">{r.ticker} · {r.sector}</p>
                   </div>
@@ -376,17 +373,92 @@ function RankingPage({ onSelectTicker }) {
   );
 }
 
+// ── 검색 자동완성 컴포넌트 ──
+function SearchInput({ onAnalyze }) {
+  const [query,       setQuery]       = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [showDrop,    setShowDrop]    = useState(false);
+  const debounceRef = useRef(null);
+  const wrapperRef  = useRef(null);
+
+  const isCode = /^\d+$/.test(query);
+
+  useEffect(() => {
+    if (!query || query.length < 1) {
+      setSuggestions([]);
+      return;
+    }
+    if (isCode && query.length === 6) {
+      onAnalyze(query);
+      return;
+    }
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        setSuggestions(data.results || []);
+        setShowDrop(true);
+      } catch {}
+    }, 300);
+  }, [query]);
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setShowDrop(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={wrapperRef} className="relative mb-2">
+      <input
+        type="text"
+        placeholder="종목명 또는 코드 (예: 삼성전자, 005930)"
+        value={query}
+        onChange={e => { setQuery(e.target.value); setShowDrop(true); }}
+        onKeyDown={e => {
+          if (e.key === "Enter" && isCode && query.length === 6) onAnalyze(query);
+        }}
+        className="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white text-base placeholder-white/20 focus:outline-none focus:border-blue-400 transition-all"
+      />
+      <button
+        onClick={() => { if (isCode && query.length === 6) onAnalyze(query); }}
+        className="absolute right-3 top-1/2 -translate-y-1/2 px-5 py-2 rounded-xl font-bold text-sm text-white"
+        style={{ background: "linear-gradient(135deg,#3b82f6,#06b6d4)", boxShadow: "0 0 20px #3b82f640" }}>
+        분석 →
+      </button>
+
+      {/* 자동완성 드롭다운 */}
+      {showDrop && suggestions.length > 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 rounded-2xl border border-white/20 bg-gray-900/95 backdrop-blur z-50 overflow-hidden">
+          {suggestions.map((s) => (
+            <button key={s.ticker}
+              onClick={() => { setQuery(s.name); setShowDrop(false); onAnalyze(s.ticker); }}
+              className="w-full px-5 py-3 flex items-center justify-between hover:bg-white/10 transition-all text-left">
+              <span className="text-white font-medium text-sm">{s.name}</span>
+              <span className="text-white/40 text-xs">{s.ticker}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [tab,     setTab]     = useState("screener");
-  const [ticker,  setTicker]  = useState("");
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState(null);
   const [error,   setError]   = useState("");
 
   const analyze = async (code) => {
-    const t = (code || ticker).trim();
+    const t = code?.trim();
     if (!t || t.length !== 6) {
-      setError("6자리 종목코드를 입력하세요 (예: 005387)");
+      setError("6자리 종목코드를 입력하세요");
       return;
     }
     setLoading(true); setError(""); setResult(null); setTab("screener");
@@ -397,7 +469,6 @@ export default function App() {
         throw new Error(e.detail || "분석 실패");
       }
       setResult(await res.json());
-      setTicker(t);
     } catch (e) {
       setError(e.message || "서버 오류");
     } finally {
@@ -444,30 +515,24 @@ export default function App() {
 
         {tab === "screener" && (
           <>
-            <div className="relative mb-2">
-              <input
-                type="text" inputMode="numeric" maxLength={6}
-                placeholder="종목코드 6자리 (예: 005387)"
-                value={ticker}
-                onChange={e => setTicker(e.target.value.replace(/\D/g, ""))}
-                onKeyDown={e => e.key === "Enter" && analyze()}
-                className="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white text-lg placeholder-white/20 focus:outline-none focus:border-blue-400 transition-all"
-              />
-              <button onClick={() => analyze()} disabled={loading}
-                className="absolute right-3 top-1/2 -translate-y-1/2 px-5 py-2 rounded-xl font-bold text-sm text-white disabled:opacity-40"
-                style={{ background: "linear-gradient(135deg,#3b82f6,#06b6d4)", boxShadow: "0 0 20px #3b82f640" }}>
-                {loading ? "분석중..." : "분석 →"}
-              </button>
-            </div>
+            {/* 검색창 */}
+            <SearchInput onAnalyze={analyze} />
 
+            {/* 빠른 선택 */}
             <div className="flex gap-2 mb-6 flex-wrap">
               {[["005387","현대차2우B"],["000270","기아"],["086790","하나금융"]].map(([code, name]) => (
-                <button key={code} onClick={() => { setTicker(code); analyze(code); }}
+                <button key={code} onClick={() => analyze(code)}
                   className="px-3 py-1 text-xs rounded-full border border-white/20 text-white/40 hover:text-white hover:border-white/50 transition-all">
                   {name}
                 </button>
               ))}
             </div>
+
+            {loading && (
+              <div className="text-center py-12">
+                <div className="text-white/40 text-sm">분석 중...</div>
+              </div>
+            )}
 
             {error && (
               <div className="mb-4 p-4 rounded-xl border border-red-500/40 bg-red-500/10 text-red-300 text-sm">
@@ -475,13 +540,16 @@ export default function App() {
               </div>
             )}
 
-            {result && (
+            {result && !loading && (
               <div className="space-y-4" style={{ animation: "fadeIn 0.5s ease-out" }}>
 
                 <div className={`p-5 rounded-2xl border ${cfg.border} bg-gradient-to-br ${cfg.bg}`}>
                   <div className="flex justify-between items-start">
                     <div>
                       <h2 className="text-xl font-black text-white">{result.name}</h2>
+                      {result.name_en && result.name !== result.name_en && (
+                        <p className="text-white/30 text-xs mt-0.5">{result.name_en}</p>
+                      )}
                       <p className="text-white/40 text-sm mt-0.5">{result.ticker} · {result.sector}</p>
                     </div>
                     <div className="text-right">
@@ -547,7 +615,7 @@ export default function App() {
         )}
 
         {tab === "ranking" && (
-          <RankingPage onSelectTicker={(code) => { setTicker(code); analyze(code); }} />
+          <RankingPage onSelectTicker={(code) => analyze(code)} />
         )}
       </div>
 

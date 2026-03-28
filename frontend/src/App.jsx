@@ -36,12 +36,14 @@ function ValueGauge({ score, grade }) {
     return () => clearTimeout(t);
   }, [score]);
 
-  const CX = 150, CY = 140, R = 100;
+  // 넉넉한 viewBox — 50마커가 왼쪽 상단으로 나가는 문제 해결
+  const W = 360, H = 210;
+  const CX = 180, CY = 155, R = 105;
   const circ = Math.PI * R;
   const prog = (anim / 100) * circ;
   const col = GRADE_CONFIG[grade]?.color || "#f87171";
 
-  // 왼쪽=0점(180도), 오른쪽=100점(0도)
+  // 왼쪽=0점(π), 오른쪽=100점(0)
   const scoreToRad = (s) => Math.PI * (1 - s / 100);
 
   const markers = [
@@ -53,8 +55,8 @@ function ValueGauge({ score, grade }) {
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: 320, height: 185 }}>
-        <svg width="320" height="185" viewBox="0 0 320 185">
+      <div className="relative" style={{ width: W, height: H }}>
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
           <defs>
             <filter id="glow">
               <feGaussianBlur stdDeviation="3" result="blur"/>
@@ -67,11 +69,11 @@ function ValueGauge({ score, grade }) {
 
           {/* 배경 호 */}
           <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
-            fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="14" strokeLinecap="round"/>
+            fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="16" strokeLinecap="round"/>
 
           {/* 점수 호 */}
           <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
-            fill="none" stroke={col} strokeWidth="14" strokeLinecap="round"
+            fill="none" stroke={col} strokeWidth="16" strokeLinecap="round"
             strokeDasharray={`${prog.toFixed(1)} ${circ.toFixed(1)}`}
             filter="url(#glow)"
             style={{ transition: "stroke-dasharray 1.4s cubic-bezier(0.34,1.56,0.64,1)" }}
@@ -80,17 +82,19 @@ function ValueGauge({ score, grade }) {
           {/* 마커 */}
           {markers.map(({ score: s, label, color }) => {
             const rad = scoreToRad(s);
-            const ix  = CX + (R - 10) * Math.cos(rad);
-            const iy  = CY - (R - 10) * Math.sin(rad);
-            const ox  = CX + (R + 10) * Math.cos(rad);
-            const oy  = CY - (R + 10) * Math.sin(rad);
-            const lx  = CX + (R + 24) * Math.cos(rad);
-            const ly  = CY - (R + 24) * Math.sin(rad);
-            const nx  = CX + (R + 40) * Math.cos(rad);
-            const ny  = CY - (R + 40) * Math.sin(rad);
+            const cosR = Math.cos(rad);
+            const sinR = Math.sin(rad);
+            const ix  = CX + (R - 12) * cosR;
+            const iy  = CY - (R - 12) * sinR;
+            const ox  = CX + (R + 12) * cosR;
+            const oy  = CY - (R + 12) * sinR;
+            const lx  = CX + (R + 26) * cosR;
+            const ly  = CY - (R + 26) * sinR;
+            const nx  = CX + (R + 42) * cosR;
+            const ny  = CY - (R + 42) * sinR;
             return (
               <g key={label}>
-                <line x1={ix} y1={iy} x2={ox} y2={oy} stroke={color} strokeWidth="2.5" opacity="0.9"/>
+                <line x1={ix} y1={iy} x2={ox} y2={oy} stroke={color} strokeWidth="2.5" opacity="0.95"/>
                 <text x={lx} y={ly + 4} fill={color} fontSize="12" fontWeight="bold" textAnchor="middle">{label}</text>
                 <text x={nx} y={ny + 4} fill={color} fontSize="10" textAnchor="middle" opacity="0.7">{s}</text>
               </g>
@@ -98,20 +102,20 @@ function ValueGauge({ score, grade }) {
           })}
 
           {/* 양 끝 숫자 */}
-          <text x={CX - R - 18} y={CY + 20} fill="rgba(255,255,255,0.2)" fontSize="11" textAnchor="middle">0</text>
-          <text x={CX + R + 18} y={CY + 20} fill="rgba(255,255,255,0.2)" fontSize="11" textAnchor="middle">100</text>
+          <text x={CX - R - 20} y={CY + 20} fill="rgba(255,255,255,0.2)" fontSize="11" textAnchor="middle">0</text>
+          <text x={CX + R + 20} y={CY + 20} fill="rgba(255,255,255,0.2)" fontSize="11" textAnchor="middle">100</text>
         </svg>
 
         {/* 중앙 점수 */}
-        <div className="absolute inset-0 flex flex-col items-center justify-end pb-2">
-          <span style={{ fontSize: 56, color: col, fontFamily: "monospace", lineHeight: 1, transition: "color 0.5s", fontWeight: 700 }}>
+        <div className="absolute inset-0 flex flex-col items-center justify-end pb-4">
+          <span style={{ fontSize: 58, color: col, fontFamily: "monospace", lineHeight: 1, transition: "color 0.5s", fontWeight: 700 }}>
             {Math.round(anim)}
           </span>
           <span className="text-white/30 text-xs tracking-widest mt-1">/ 100점</span>
         </div>
       </div>
 
-      <div className={`mt-3 px-8 py-2 rounded-full border ${GRADE_CONFIG[grade]?.border} bg-white/5`}>
+      <div className={`mt-2 px-8 py-2 rounded-full border ${GRADE_CONFIG[grade]?.border} bg-white/5`}>
         <span className={`text-2xl font-black ${GRADE_CONFIG[grade]?.text}`}>{grade}등급</span>
       </div>
     </div>
@@ -502,7 +506,6 @@ export default function App() {
       style={{ background: "radial-gradient(ellipse at 20% 50%, #0f172a 0%, #020617 60%), radial-gradient(ellipse at 80% 20%, #1e1b4b 0%, transparent 50%)" }}>
       <div className="max-w-md mx-auto px-4 py-8 pb-24">
 
-        {/* 헤더 */}
         <div className="mb-6">
           <p className="text-white/30 text-xs tracking-widest uppercase mb-2">💰 Dividend Screener</p>
           <h1 className="text-3xl font-black leading-tight">
@@ -514,7 +517,6 @@ export default function App() {
           <p className="text-white/30 text-sm mt-2">배당 우량주를 한눈에 · 100점 만점 분석</p>
         </div>
 
-        {/* 탭 */}
         <div className="flex gap-2 mb-6 p-1 rounded-2xl bg-white/5 border border-white/10">
           <button onClick={() => setTab("screener")}
             className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${tab === "screener" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"}`}>
@@ -570,10 +572,10 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className={`p-6 rounded-2xl border ${cfg.border} bg-white/5 text-center`}>
-                  <p className="text-white/30 text-xs tracking-widest uppercase mb-4">DIVIDEND SCORE</p>
+                <div className={`p-6 rounded-2xl border ${cfg.border} bg-white/5 text-center overflow-hidden`}>
+                  <p className="text-white/30 text-xs tracking-widest uppercase mb-2">DIVIDEND SCORE</p>
                   <ValueGauge score={result.total_score} grade={grade} />
-                  <p className={`mt-4 text-base font-black ${cfg.text}`}>{result.grade.label}</p>
+                  <p className={`mt-2 text-base font-black ${cfg.text}`}>{result.grade.label}</p>
                 </div>
 
                 <div className="text-center">
@@ -629,7 +631,6 @@ export default function App() {
         )}
       </div>
 
-      {/* 하단 탭바 */}
       <div className="fixed bottom-0 left-0 right-0 z-50"
         style={{ background: "rgba(2,6,23,0.95)", backdropFilter: "blur(20px)", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
         <div className="max-w-md mx-auto flex">

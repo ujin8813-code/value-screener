@@ -63,20 +63,14 @@ function ValueGauge({ score, grade }) {
               </feMerge>
             </filter>
           </defs>
-
-          {/* 배경 호 — butt으로 정확한 끝점 */}
           <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
             fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="16" strokeLinecap="butt"/>
-
-          {/* 점수 호 — butt으로 정확한 끝점 */}
           <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
             fill="none" stroke={col} strokeWidth="16" strokeLinecap="butt"
             strokeDasharray={`${prog.toFixed(1)} ${circ.toFixed(1)}`}
             filter="url(#glow)"
             style={{ transition: "stroke-dasharray 1.4s cubic-bezier(0.34,1.56,0.64,1)" }}
           />
-
-          {/* 마커 */}
           {markers.map(({ score: s, label, color }) => {
             const rad = scoreToRad(s);
             const cosR = Math.cos(rad);
@@ -97,13 +91,9 @@ function ValueGauge({ score, grade }) {
               </g>
             );
           })}
-
-          {/* 양 끝 숫자 */}
           <text x={CX - R - 20} y={CY + 20} fill="rgba(255,255,255,0.2)" fontSize="11" textAnchor="middle">0</text>
           <text x={CX + R + 20} y={CY + 20} fill="rgba(255,255,255,0.2)" fontSize="11" textAnchor="middle">100</text>
         </svg>
-
-        {/* 중앙 점수 */}
         <div className="absolute inset-0 flex flex-col items-center justify-end pb-4">
           <span style={{ fontSize: 58, color: col, fontFamily: "monospace", lineHeight: 1, transition: "color 0.5s", fontWeight: 700 }}>
             {Math.round(anim)}
@@ -111,7 +101,6 @@ function ValueGauge({ score, grade }) {
           <span className="text-white/30 text-xs tracking-widest mt-1">/ 100점</span>
         </div>
       </div>
-
       <div className={`mt-2 px-8 py-2 rounded-full border ${GRADE_CONFIG[grade]?.border} bg-white/5`}>
         <span className={`text-2xl font-black ${GRADE_CONFIG[grade]?.text}`}>{grade}등급</span>
       </div>
@@ -318,6 +307,17 @@ function RankingPage({ onSelectTicker }) {
       .catch(() => setLoading(false));
   }, []);
 
+  const SECTOR_TAG: Record<string, { label: string; style: string }> = {
+    "Financial Services": { label: "금융", style: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
+    "Utilities":          { label: "유틸리티", style: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" },
+    "Consumer Cyclical":  { label: "소비재", style: "bg-pink-500/20 text-pink-300 border-pink-500/30" },
+    "Industrials":        { label: "산업재", style: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
+    "Energy":             { label: "에너지", style: "bg-red-500/20 text-red-300 border-red-500/30" },
+    "Technology":         { label: "기술", style: "bg-violet-500/20 text-violet-300 border-violet-500/30" },
+    "Healthcare":         { label: "헬스케어", style: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" },
+    "Communication Services": { label: "통신", style: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30" },
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -338,7 +338,8 @@ function RankingPage({ onSelectTicker }) {
       ) : (
         <div className="space-y-3">
           {rankings.map((r, i) => {
-            const cfg = GRADE_CONFIG[r.grade] || GRADE_CONFIG["D"];
+            const cfg     = GRADE_CONFIG[r.grade] || GRADE_CONFIG["D"];
+            const secTag  = SECTOR_TAG[r.sector];
             return (
               <div key={r.ticker}
                 onClick={() => onSelectTicker(r.ticker)}
@@ -348,11 +349,18 @@ function RankingPage({ onSelectTicker }) {
                     <span className="text-white/60 text-xs font-bold">{i + 1}</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <p className="text-white font-bold text-sm truncate">{r.name}</p>
-                      <span className={`text-xs px-2 py-0.5 rounded-full border ${cfg.border} ${cfg.text} shrink-0`}>{r.grade}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${cfg.border} ${cfg.text} shrink-0`}>
+                        {r.grade}
+                      </span>
+                      {secTag && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full border ${secTag.style} shrink-0`}>
+                          {secTag.label}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-white/30 text-xs mt-0.5">{r.ticker} · {r.sector}</p>
+                    <p className="text-white/30 text-xs mt-0.5">{r.ticker}</p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className={`text-2xl font-black ${cfg.text}`}>{r.score}</p>
@@ -528,7 +536,6 @@ export default function App() {
         {tab === "screener" && (
           <>
             <SearchInput onAnalyze={analyze} />
-
             <div className="flex gap-2 mb-6 flex-wrap">
               {[["005387","현대차2우B"],["000270","기아"],["086790","하나금융"]].map(([code, name]) => (
                 <button key={code} onClick={() => analyze(code)}

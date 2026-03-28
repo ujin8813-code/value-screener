@@ -36,11 +36,13 @@ function ValueGauge({ score, grade }) {
     return () => clearTimeout(t);
   }, [score]);
 
-  const CX = 130, CY = 130, R = 95;
+  const CX = 150, CY = 140, R = 100;
   const circ = Math.PI * R;
   const prog = (anim / 100) * circ;
   const col = GRADE_CONFIG[grade]?.color || "#f87171";
-  const scoreToRad = (s) => Math.PI - (s / 100) * Math.PI;
+
+  // 왼쪽=0점(180도), 오른쪽=100점(0도)
+  const scoreToRad = (s) => Math.PI * (1 - s / 100);
 
   const markers = [
     { score: 50, label: "C", color: "#fb923c" },
@@ -51,8 +53,8 @@ function ValueGauge({ score, grade }) {
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: 300, height: 175 }}>
-        <svg width="300" height="175" viewBox="0 0 300 175">
+      <div className="relative" style={{ width: 320, height: 185 }}>
+        <svg width="320" height="185" viewBox="0 0 320 185">
           <defs>
             <filter id="glow">
               <feGaussianBlur stdDeviation="3" result="blur"/>
@@ -75,34 +77,34 @@ function ValueGauge({ score, grade }) {
             style={{ transition: "stroke-dasharray 1.4s cubic-bezier(0.34,1.56,0.64,1)" }}
           />
 
-          {/* 마커들 */}
+          {/* 마커 */}
           {markers.map(({ score: s, label, color }) => {
             const rad = scoreToRad(s);
             const ix  = CX + (R - 10) * Math.cos(rad);
             const iy  = CY - (R - 10) * Math.sin(rad);
             const ox  = CX + (R + 10) * Math.cos(rad);
             const oy  = CY - (R + 10) * Math.sin(rad);
-            const lx  = CX + (R + 22) * Math.cos(rad);
-            const ly  = CY - (R + 22) * Math.sin(rad);
-            const nx  = CX + (R + 36) * Math.cos(rad);
-            const ny  = CY - (R + 36) * Math.sin(rad);
+            const lx  = CX + (R + 24) * Math.cos(rad);
+            const ly  = CY - (R + 24) * Math.sin(rad);
+            const nx  = CX + (R + 40) * Math.cos(rad);
+            const ny  = CY - (R + 40) * Math.sin(rad);
             return (
               <g key={label}>
-                <line x1={ix} y1={iy} x2={ox} y2={oy} stroke={color} strokeWidth="2" opacity="0.9"/>
-                <text x={lx} y={ly + 4} fill={color} fontSize="11" fontWeight="bold" textAnchor="middle">{label}</text>
-                <text x={nx} y={ny + 4} fill={color} fontSize="9" textAnchor="middle" opacity="0.6">{s}</text>
+                <line x1={ix} y1={iy} x2={ox} y2={oy} stroke={color} strokeWidth="2.5" opacity="0.9"/>
+                <text x={lx} y={ly + 4} fill={color} fontSize="12" fontWeight="bold" textAnchor="middle">{label}</text>
+                <text x={nx} y={ny + 4} fill={color} fontSize="10" textAnchor="middle" opacity="0.7">{s}</text>
               </g>
             );
           })}
 
           {/* 양 끝 숫자 */}
-          <text x={CX - R - 16} y={CY + 18} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="middle">0</text>
-          <text x={CX + R + 16} y={CY + 18} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="middle">100</text>
+          <text x={CX - R - 18} y={CY + 20} fill="rgba(255,255,255,0.2)" fontSize="11" textAnchor="middle">0</text>
+          <text x={CX + R + 18} y={CY + 20} fill="rgba(255,255,255,0.2)" fontSize="11" textAnchor="middle">100</text>
         </svg>
 
         {/* 중앙 점수 */}
         <div className="absolute inset-0 flex flex-col items-center justify-end pb-2">
-          <span style={{ fontSize: 54, color: col, fontFamily: "monospace", lineHeight: 1, transition: "color 0.5s", fontWeight: 700 }}>
+          <span style={{ fontSize: 56, color: col, fontFamily: "monospace", lineHeight: 1, transition: "color 0.5s", fontWeight: 700 }}>
             {Math.round(anim)}
           </span>
           <span className="text-white/30 text-xs tracking-widest mt-1">/ 100점</span>
@@ -593,12 +595,12 @@ export default function App() {
                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
                   <h3 className="text-white/40 text-xs tracking-widest uppercase mb-3">핵심 지표</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    <MetricCard label="PER"       value={km.per}            status={km.per_status} />
-                    <MetricCard label="PBR"       value={km.pbr}            status={km.pbr_status} />
-                    <MetricCard label="ROE"       value={km.roe}  unit="%"  status={km.roe_status} highlight />
-                    <MetricCard label="배당수익률" value={km.dividend_yield} unit="%" status={km.dy_status} highlight />
-                    <MetricCard label="영업이익률" value={km.op_margin}      unit="%" />
-                    <MetricCard label="매출 성장률" value={km.rev_growth}    unit="%" />
+                    <MetricCard label="PER"        value={km.per}            status={km.per_status} />
+                    <MetricCard label="PBR"        value={km.pbr}            status={km.pbr_status} />
+                    <MetricCard label="ROE"        value={km.roe}   unit="%" status={km.roe_status} highlight />
+                    <MetricCard label="배당수익률"  value={km.dividend_yield} unit="%" status={km.dy_status} highlight />
+                    <MetricCard label="영업이익률"  value={km.op_margin}      unit="%" />
+                    <MetricCard label="매출 성장률" value={km.rev_growth}     unit="%" />
                   </div>
                   <p className="text-white/20 text-xs text-right mt-3">📊 네이버 증권 기준</p>
                 </div>

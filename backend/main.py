@@ -135,13 +135,11 @@ def detect_quarterly_dividend(stock) -> bool:
         dividends = stock.dividends
         if dividends is None or len(dividends) == 0:
             return False
-        # 최근 2년치 배당 횟수 확인
         recent = dividends.last("2Y")
         if len(recent) == 0:
             recent = dividends.last("3Y")
         if len(recent) == 0:
             return False
-        # 2년간 배당 횟수가 5회 이상이면 분기배당으로 판단
         return len(recent) >= 5
     except:
         return False
@@ -225,13 +223,17 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
         details["per"] = None
         details["per_status"] = None
 
-    # ROE (5점) — 네이버 우선
+    # ROE (5점) — 네이버 우선 + 비정상값 필터링
     roe_raw = info.get("returnOnEquity")
     roe_yf  = round(roe_raw * 100, 2) if roe_raw else None
     roe_nav = naver.get("roe")
-    roe_pct = roe_nav or roe_yf  # 네이버 우선
+    roe_pct = roe_nav or roe_yf
 
-    if roe_pct:
+    # 비정상값 필터링 (100% 초과면 데이터 오류)
+    if roe_pct and roe_pct > 100:
+        roe_pct = roe_yf if roe_yf and roe_yf <= 100 else None
+
+    if roe_pct and roe_pct > 0:
         if roe_pct >= 15:   scores["roe"] = 5
         elif roe_pct >= 10: scores["roe"] = 3
         elif roe_pct >= 5:  scores["roe"] = 1
@@ -504,7 +506,6 @@ async def analyze_ticker(ticker_code: str) -> dict | None:
         if len(revenues) >= 2:
             rev_growth = round(((revenues[0] - revenues[-1]) / abs(revenues[-1])) * 100, 2)
 
-        # 분기배당 자동 감지
         is_quarterly = detect_quarterly_dividend(stock)
 
         hist = {
@@ -692,7 +693,7 @@ async def get_ranking():
                     "grade_label":    r[5],
                     "per":            r[6],
                     "pbr":            r[7],
-                    "roe":            r[8],
+                    "roe":            r[8] if r[8] and r[8] < 100 else None,
                     "dividend_yield": r[9],
                     "sector":         r[10],
                     "updated_at":     r[11].strftime("%Y-%m-%d %H:%M") if r[11] else None,
@@ -784,7 +785,6 @@ async def analyze(ticker_code: str):
         if len(revenues) >= 2:
             rev_growth = round(((revenues[0] - revenues[-1]) / abs(revenues[-1])) * 100, 2)
 
-        # 분기배당 자동 감지
         is_quarterly = detect_quarterly_dividend(stock)
 
         hist = {

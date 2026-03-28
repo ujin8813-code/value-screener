@@ -307,7 +307,7 @@ function RankingPage({ onSelectTicker }) {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-white font-black text-xl">🏆 우량주 랭킹</h2>
+        <h2 className="text-white font-black text-xl">🏆 배당 우량주 랭킹</h2>
         <p className="text-white/30 text-xs mt-1">
           {lastScan
             ? `${lastScan.scanned_at} 기준 · ${lastScan.total_scanned}개 분석 · ${lastScan.total_qualified}개 선정`
@@ -373,7 +373,6 @@ function RankingPage({ onSelectTicker }) {
   );
 }
 
-// ── 검색 자동완성 컴포넌트 ──
 function SearchInput({ onAnalyze }) {
   const [query,       setQuery]       = useState("");
   const [suggestions, setSuggestions] = useState([]);
@@ -431,8 +430,6 @@ function SearchInput({ onAnalyze }) {
         style={{ background: "linear-gradient(135deg,#3b82f6,#06b6d4)", boxShadow: "0 0 20px #3b82f640" }}>
         분석 →
       </button>
-
-      {/* 자동완성 드롭다운 */}
       {showDrop && suggestions.length > 0 && (
         <div className="absolute top-full left-0 right-0 mt-1 rounded-2xl border border-white/20 bg-gray-900/95 backdrop-blur z-50 overflow-hidden">
           {suggestions.map((s) => (
@@ -478,8 +475,8 @@ export default function App() {
 
   const handleShare = () => {
     if (!result) return;
-    const text = `📊 ${result.name} 가치투자 분석\n총점: ${result.total_score}점\n등급: ${result.grade.grade}등급 — ${result.grade.label}\n\n🔗 지금 분석해보기: ${window.location.href}`;
-    if (navigator.share) navigator.share({ title: "가치투자 스크리닝", text });
+    const text = `📊 ${result.name} 배당주 분석\n총점: ${result.total_score}점\n등급: ${result.grade.grade}등급 — ${result.grade.label}\n\n🔗 지금 분석해보기: ${window.location.href}`;
+    if (navigator.share) navigator.share({ title: "배당 스크리너", text });
     else { navigator.clipboard?.writeText(text); alert("📋 클립보드에 복사됐습니다!"); }
   };
 
@@ -492,16 +489,19 @@ export default function App() {
       style={{ background: "radial-gradient(ellipse at 20% 50%, #0f172a 0%, #020617 60%), radial-gradient(ellipse at 80% 20%, #1e1b4b 0%, transparent 50%)" }}>
       <div className="max-w-md mx-auto px-4 py-8 pb-24">
 
+        {/* 헤더 */}
         <div className="mb-6">
-          <p className="text-white/30 text-xs tracking-widest uppercase mb-2">📈 Value Screener</p>
+          <p className="text-white/30 text-xs tracking-widest uppercase mb-2">💰 Dividend Screener</p>
           <h1 className="text-3xl font-black leading-tight">
-            한국 주식<br/>
+            한국 배당주<br/>
             <span style={{ background: "linear-gradient(90deg,#60a5fa,#34d399)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-              가치투자 분석기
+              스크리너
             </span>
           </h1>
+          <p className="text-white/30 text-sm mt-2">배당 우량주를 한눈에 · 100점 만점 분석</p>
         </div>
 
+        {/* 탭 */}
         <div className="flex gap-2 mb-6 p-1 rounded-2xl bg-white/5 border border-white/10">
           <button onClick={() => setTab("screener")}
             className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${tab === "screener" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"}`}>
@@ -515,10 +515,8 @@ export default function App() {
 
         {tab === "screener" && (
           <>
-            {/* 검색창 */}
             <SearchInput onAnalyze={analyze} />
 
-            {/* 빠른 선택 */}
             <div className="flex gap-2 mb-6 flex-wrap">
               {[["005387","현대차2우B"],["000270","기아"],["086790","하나금융"]].map(([code, name]) => (
                 <button key={code} onClick={() => analyze(code)}
@@ -560,7 +558,7 @@ export default function App() {
                 </div>
 
                 <div className={`p-6 rounded-2xl border ${cfg.border} bg-white/5 text-center`}>
-                  <p className="text-white/30 text-xs tracking-widest uppercase mb-4">VALUE SCORE</p>
+                  <p className="text-white/30 text-xs tracking-widest uppercase mb-4">DIVIDEND SCORE</p>
                   <ValueGauge score={result.total_score} grade={grade} />
                   <p className={`mt-4 text-base font-black ${cfg.text}`}>{result.grade.label}</p>
                 </div>
@@ -577,7 +575,7 @@ export default function App() {
                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
                   <h3 className="text-white/40 text-xs tracking-widest uppercase mb-4">카테고리별 점수</h3>
                   <ScoreBar label="🛡️ 가치 평가"    score={result.categories.a.total} max={32} color="#60a5fa" />
-                  <ScoreBar label="🤝 주주환원"      score={result.categories.b.total} max={41} color="#34d399" />
+                  <ScoreBar label="💰 주주환원"      score={result.categories.b.total} max={41} color="#34d399" />
                   <ScoreBar label="🚀 성장 & 경쟁력" score={result.categories.c.total} max={27} color="#a78bfa" />
                 </div>
 
@@ -619,6 +617,7 @@ export default function App() {
         )}
       </div>
 
+      {/* 하단 탭바 */}
       <div className="fixed bottom-0 left-0 right-0 z-50"
         style={{ background: "rgba(2,6,23,0.95)", backdropFilter: "blur(20px)", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
         <div className="max-w-md mx-auto flex">

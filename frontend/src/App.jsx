@@ -6,7 +6,7 @@ const GRADE_CONFIG = {
   S: { color: "#a78bfa", border: "border-violet-400", text: "text-violet-300", bg: "from-violet-500/20 to-purple-500/20" },
   A: { color: "#34d399", border: "border-emerald-400", text: "text-emerald-300", bg: "from-emerald-500/20 to-teal-500/20" },
   B: { color: "#60a5fa", border: "border-blue-400",    text: "text-blue-300",    bg: "from-blue-500/20 to-cyan-500/20" },
-  C: { color: "#fbbf24", border: "border-amber-400",   text: "text-amber-300",   bg: "from-amber-500/20 to-orange-500/20" },
+  C: { color: "#fb923c", border: "border-orange-400",  text: "text-orange-300",  bg: "from-orange-500/20 to-amber-500/20" },
   D: { color: "#f87171", border: "border-red-400",     text: "text-red-300",     bg: "from-red-500/20 to-rose-500/20" },
 };
 
@@ -36,14 +36,14 @@ function ValueGauge({ score, grade }) {
     return () => clearTimeout(t);
   }, [score]);
 
-  const CX = 120, CY = 125, R = 90;
+  const CX = 130, CY = 130, R = 95;
   const circ = Math.PI * R;
   const prog = (anim / 100) * circ;
   const col = GRADE_CONFIG[grade]?.color || "#f87171";
   const scoreToRad = (s) => Math.PI - (s / 100) * Math.PI;
 
   const markers = [
-    { score: 50, label: "C", color: "#fbbf24" },
+    { score: 50, label: "C", color: "#fb923c" },
     { score: 70, label: "B", color: "#60a5fa" },
     { score: 80, label: "A", color: "#34d399" },
     { score: 90, label: "S", color: "#a78bfa" },
@@ -51,8 +51,8 @@ function ValueGauge({ score, grade }) {
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: 280, height: 165 }}>
-        <svg width="280" height="165" viewBox="0 0 280 165">
+      <div className="relative" style={{ width: 300, height: 175 }}>
+        <svg width="300" height="175" viewBox="0 0 300 175">
           <defs>
             <filter id="glow">
               <feGaussianBlur stdDeviation="3" result="blur"/>
@@ -62,24 +62,30 @@ function ValueGauge({ score, grade }) {
               </feMerge>
             </filter>
           </defs>
+
+          {/* 배경 호 */}
           <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
             fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="14" strokeLinecap="round"/>
+
+          {/* 점수 호 */}
           <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
             fill="none" stroke={col} strokeWidth="14" strokeLinecap="round"
             strokeDasharray={`${prog.toFixed(1)} ${circ.toFixed(1)}`}
             filter="url(#glow)"
             style={{ transition: "stroke-dasharray 1.4s cubic-bezier(0.34,1.56,0.64,1)" }}
           />
+
+          {/* 마커들 */}
           {markers.map(({ score: s, label, color }) => {
             const rad = scoreToRad(s);
-            const ix = CX + (R - 8) * Math.cos(rad);
-            const iy = CY - (R - 8) * Math.sin(rad);
-            const ox = CX + (R + 8) * Math.cos(rad);
-            const oy = CY - (R + 8) * Math.sin(rad);
-            const lx = CX + (R + 20) * Math.cos(rad);
-            const ly = CY - (R + 20) * Math.sin(rad);
-            const nx = CX + (R + 34) * Math.cos(rad);
-            const ny = CY - (R + 34) * Math.sin(rad);
+            const ix  = CX + (R - 10) * Math.cos(rad);
+            const iy  = CY - (R - 10) * Math.sin(rad);
+            const ox  = CX + (R + 10) * Math.cos(rad);
+            const oy  = CY - (R + 10) * Math.sin(rad);
+            const lx  = CX + (R + 22) * Math.cos(rad);
+            const ly  = CY - (R + 22) * Math.sin(rad);
+            const nx  = CX + (R + 36) * Math.cos(rad);
+            const ny  = CY - (R + 36) * Math.sin(rad);
             return (
               <g key={label}>
                 <line x1={ix} y1={iy} x2={ox} y2={oy} stroke={color} strokeWidth="2" opacity="0.9"/>
@@ -88,16 +94,21 @@ function ValueGauge({ score, grade }) {
               </g>
             );
           })}
-          <text x={CX - R - 14} y={CY + 16} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="middle">0</text>
-          <text x={CX + R + 14} y={CY + 16} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="middle">100</text>
+
+          {/* 양 끝 숫자 */}
+          <text x={CX - R - 16} y={CY + 18} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="middle">0</text>
+          <text x={CX + R + 16} y={CY + 18} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="middle">100</text>
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-end pb-3">
-          <span style={{ fontSize: 52, color: col, fontFamily: "monospace", lineHeight: 1, transition: "color 0.5s", fontWeight: 700 }}>
+
+        {/* 중앙 점수 */}
+        <div className="absolute inset-0 flex flex-col items-center justify-end pb-2">
+          <span style={{ fontSize: 54, color: col, fontFamily: "monospace", lineHeight: 1, transition: "color 0.5s", fontWeight: 700 }}>
             {Math.round(anim)}
           </span>
           <span className="text-white/30 text-xs tracking-widest mt-1">/ 100점</span>
         </div>
       </div>
+
       <div className={`mt-3 px-8 py-2 rounded-full border ${GRADE_CONFIG[grade]?.border} bg-white/5`}>
         <span className={`text-2xl font-black ${GRADE_CONFIG[grade]?.text}`}>{grade}등급</span>
       </div>
@@ -574,9 +585,9 @@ export default function App() {
 
                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
                   <h3 className="text-white/40 text-xs tracking-widest uppercase mb-4">카테고리별 점수</h3>
-                  <ScoreBar label="🛡️ 가치 평가"    score={result.categories.a.total} max={32} color="#60a5fa" />
-                  <ScoreBar label="💰 주주환원"      score={result.categories.b.total} max={41} color="#34d399" />
-                  <ScoreBar label="🚀 성장 & 경쟁력" score={result.categories.c.total} max={27} color="#a78bfa" />
+                  <ScoreBar label="🛡️ 이익 창출력 / 저평가" score={result.categories.a.total} max={35} color="#60a5fa" />
+                  <ScoreBar label="💰 주주환원 의지"         score={result.categories.b.total} max={40} color="#34d399" />
+                  <ScoreBar label="🚀 비즈니스 경쟁력"       score={result.categories.c.total} max={25} color="#a78bfa" />
                 </div>
 
                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
@@ -584,11 +595,10 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-3">
                     <MetricCard label="PER"       value={km.per}            status={km.per_status} />
                     <MetricCard label="PBR"       value={km.pbr}            status={km.pbr_status} />
-                    <MetricCard label="ROE"       value={km.roe}  unit="%"  highlight />
+                    <MetricCard label="ROE"       value={km.roe}  unit="%"  status={km.roe_status} highlight />
                     <MetricCard label="배당수익률" value={km.dividend_yield} unit="%" status={km.dy_status} highlight />
-                    <div className="col-span-2">
-                      <DebtCard value={km.debt_to_equity} grade={km.debt_grade} />
-                    </div>
+                    <MetricCard label="영업이익률" value={km.op_margin}      unit="%" />
+                    <MetricCard label="매출 성장률" value={km.rev_growth}    unit="%" />
                   </div>
                   <p className="text-white/20 text-xs text-right mt-3">📊 네이버 증권 기준</p>
                 </div>

@@ -25,8 +25,8 @@ DATABASE_URL = os.environ.get(
     "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@crossover.proxy.rlwy.net:36008/railway"
 )
 
-X_API_KEY             = os.environ.get("ulLqH1Pi7SafZOmGNFfb65SZZ")
-X_API_SECRET          = os.environ.get("IJ30QRvRIT1GgXqNTyBtSAIgChpYPenxe8j3YZennlVKftQNI0")
+X_API_KEY             = os.environ.get("WczzEGKJRSHrfCbC73N6PosVv")
+X_API_SECRET          = os.environ.get("23c5Oaey7Ci3spH91e0LOCpY5477iRg0aOgTXg8E7aXe7d3H5m")
 X_ACCESS_TOKEN        = os.environ.get("2038127304191135744-52X7FzdSMAXZk0a9ylanBe8ccABIOp")
 X_ACCESS_TOKEN_SECRET = os.environ.get("oasmgYak2qZeitIho9b7FcdXKs3gttevs9k4hZ195k4Eu")
 

@@ -461,6 +461,13 @@ def get_grade(score: int) -> dict:
 
 
 async def post_to_x():
+    print(f"🔑 X_API_KEY: {X_API_KEY[:5] if X_API_KEY else 'None'}")
+    print(f"🔑 X_API_SECRET: {X_API_SECRET[:5] if X_API_SECRET else 'None'}")
+    print(f"🔑 X_ACCESS_TOKEN: {X_ACCESS_TOKEN[:5] if X_ACCESS_TOKEN else 'None'}")
+    print(f"🔑 X_ACCESS_TOKEN_SECRET: {X_ACCESS_TOKEN_SECRET[:5] if X_ACCESS_TOKEN_SECRET else 'None'}")
+    try:
+        if not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]):
+            
     """매일 오전 9시 X에 우량주 랭킹 자동 포스팅"""
     try:
         if not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]):

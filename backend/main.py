@@ -8,8 +8,9 @@ import psycopg2
 import os
 import asyncio
 from datetime import datetime
+import tweepy
 
-app = FastAPI(title="배당 스크리너 API", version="4.1.0")
+app = FastAPI(title="배당 스크리너 API", version="4.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,6 +24,11 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@crossover.proxy.rlwy.net:36008/railway"
 )
+
+X_API_KEY             = os.environ.get("ymfUbLDdDrVy9nSwOWpntg4TR")
+X_API_SECRET          = os.environ.get("tRd6OjubBa8otYm7OjVuPvmZV7HQ6en1akU4iJoRb1yiQT0DeJ")
+X_ACCESS_TOKEN        = os.environ.get("2038127304191135744-HkhEmP2iJG3Blems6GF7RIhQ1EMEbr")
+X_ACCESS_TOKEN_SECRET = os.environ.get("ZgcC8BsUzP2PngfUQREAHuKUsHBqRBkBlELwoBDnrwz1e")
 
 KR_NAME_MAP: dict = {}
 
@@ -130,7 +136,6 @@ def init_db():
 
 
 def detect_quarterly_dividend(stock) -> bool:
-    """배당 히스토리로 분기배당 여부 자동 감지"""
     try:
         dividends = stock.dividends
         if dividends is None or len(dividends) == 0:
@@ -207,7 +212,6 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
     scores = {}
     details = {}
 
-    # PER (15점)
     per = naver.get("per") or info.get("trailingPE") or info.get("forwardPE")
     if per and per > 0:
         if per < 5:       scores["per"] = 15
@@ -223,13 +227,10 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
         details["per"] = None
         details["per_status"] = None
 
-    # ROE (5점) — 네이버 우선 + 비정상값 필터링
     roe_raw = info.get("returnOnEquity")
     roe_yf  = round(roe_raw * 100, 2) if roe_raw else None
     roe_nav = naver.get("roe")
     roe_pct = roe_nav or roe_yf
-
-    # 비정상값 필터링 (100% 초과면 데이터 오류)
     if roe_pct and roe_pct > 100:
         roe_pct = roe_yf if roe_yf and roe_yf <= 100 else None
 
@@ -248,7 +249,6 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
         details["roe"] = None
         details["roe_status"] = None
 
-    # PBR (5점)
     pbr = naver.get("pbr") or info.get("priceToBook")
     if not pbr:
         price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or 0
@@ -269,7 +269,6 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
         details["pbr"] = None
         details["pbr_status"] = None
 
-    # 이익 지속성 (5점)
     op_margins = hist_financials.get("operating_margins", [])
     if len(op_margins) >= 3:
         all_positive = all(m > 0 for m in op_margins[-4:] if m is not None)
@@ -287,7 +286,6 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
         scores["stability"] = 3
         details["stability"] = "데이터 부족"
 
-    # 단독 상장 (5점)
     if ticker_code in DOUBLE_LISTED:
         scores["listing"] = 0
         details["listing"] = "중복상장"
@@ -302,7 +300,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
     scores = {}
     details = {}
 
-    # 배당수익률 (10점)
     price    = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or 0
     div_rate = info.get("dividendRate", 0) or 0
     dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
@@ -325,7 +322,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
         details["dividend_yield"] = 0.0
         details["dy_status"] = None
 
-    # 분기배당 (5점) — 자동 감지
     if is_quarterly:
         scores["dividend_freq"] = 5
         details["dividend_freq"] = "분기 배당 ✅"
@@ -333,7 +329,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
         scores["dividend_freq"] = 0
         details["dividend_freq"] = "연 1회 배당"
 
-    # 배당 연속인상 (5점)
     if ticker_code in DIVIDEND_GROWTH_10Y:
         scores["dividend_stability"] = 5
         details["dividend_stability"] = "10년+ 연속 인상 ✅"
@@ -352,7 +347,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
             scores["dividend_stability"] = 0
             details["dividend_stability"] = "배당 이력 불명확"
 
-    # 자사주 소각 여부 (7점)
     if ticker_code in BUYBACK_EXCELLENT:
         scores["buyback"] = 7
         details["buyback"] = "정기 자사주 소각 ✅"
@@ -360,7 +354,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
         scores["buyback"] = 0
         details["buyback"] = "소각 미실시"
 
-    # 연간 소각 비율 (8점)
     ratio = BUYBACK_RATIO.get(ticker_code, 0)
     if ratio > 2.0:
         scores["buyback_ratio"] = 8
@@ -375,7 +368,6 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
         scores["buyback_ratio"] = 0
         details["buyback_ratio"] = "소각 비율 미미"
 
-    # 자사주 보유 비율 (5점)
     treasury = TREASURY_RATIO.get(ticker_code, -1)
     if treasury == -1:
         scores["treasury"] = 5
@@ -397,7 +389,6 @@ def calc_category_c(info: dict, ticker_code: str, hist_financials: dict) -> dict
     scores = {}
     details = {}
 
-    # 영업이익률 (8점)
     op_margins = hist_financials.get("operating_margins", [])
     op_margin  = op_margins[-1] * 100 if op_margins else None
     if op_margin is None:
@@ -414,7 +405,6 @@ def calc_category_c(info: dict, ticker_code: str, hist_financials: dict) -> dict
         scores["op_margin"] = 0
         details["op_margin"] = None
 
-    # 매출 성장률 (7점)
     rev_growth = hist_financials.get("revenue_growth")
     if rev_growth is None:
         raw = info.get("revenueGrowth")
@@ -430,7 +420,6 @@ def calc_category_c(info: dict, ticker_code: str, hist_financials: dict) -> dict
         scores["rev_growth"] = 3
         details["rev_growth"] = None
 
-    # 유동비율 (5점) — 금융주 예외
     sector = info.get("sector", "")
     current_ratio = info.get("currentRatio")
     if sector in ["Financial Services", "금융"]:
@@ -449,7 +438,6 @@ def calc_category_c(info: dict, ticker_code: str, hist_financials: dict) -> dict
         details["current_ratio"] = None
         details["current_ratio_status"] = None
 
-    # 해자 — 시가총액 (5점)
     market_cap = info.get("marketCap", 0) or 0
     if market_cap > 10_000_000_000_000:
         scores["moat"] = 5
@@ -470,6 +458,58 @@ def get_grade(score: int) -> dict:
     if score >= 70: return {"grade": "B", "label": "한국 시장 우량주 · 매수 고려",    "color": "#3b82f6"}
     if score >= 50: return {"grade": "C", "label": "보유 유지 · 추가 매수 신중",      "color": "#f59e0b"}
     return             {"grade": "D", "label": "장기투자 비추천",                  "color": "#ef4444"}
+
+
+async def post_to_x():
+    """매일 오전 9시 X에 우량주 랭킹 자동 포스팅"""
+    try:
+        if not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]):
+            print("⚠️ X API 키 누락 — 포스팅 스킵")
+            return
+
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ticker, name, score, grade, per, dividend_yield
+            FROM rankings
+            ORDER BY score DESC
+            LIMIT 3
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if not rows:
+            print("⚠️ 포스팅할 랭킹 데이터 없음")
+            return
+
+        today = datetime.now().strftime("%Y.%m.%d")
+        medals = ["🥇", "🥈", "🥉"]
+
+        lines = [f"📊 오늘의 배당 우량주 ({today})\n"]
+        for i, row in enumerate(rows):
+            ticker, name, score, grade, per, dy = row
+            per_str = f"PER {per:.1f}" if per else "PER -"
+            dy_str  = f"배당 {dy:.1f}%" if dy else "배당 -"
+            lines.append(f"{medals[i]} {name} ({ticker}) — {score}점 {grade}등급")
+            lines.append(f"   {per_str} | {dy_str}\n")
+
+        lines.append("👉 전체 랭킹: 배당스크리너.com")
+        lines.append("#배당주 #가치투자 #배당스크리너 #한국주식")
+
+        tweet_text = "\n".join(lines)
+
+        client = tweepy.Client(
+            consumer_key=X_API_KEY,
+            consumer_secret=X_API_SECRET,
+            access_token=X_ACCESS_TOKEN,
+            access_token_secret=X_ACCESS_TOKEN_SECRET,
+        )
+        client.create_tweet(text=tweet_text)
+        print(f"✅ X 포스팅 완료: {today}")
+
+    except Exception as e:
+        print(f"X 포스팅 실패: {e}")
 
 
 async def analyze_ticker(ticker_code: str) -> dict | None:
@@ -601,14 +641,17 @@ async def startup():
     init_db()
     load_kr_names()
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
-    scheduler.add_job(run_full_scan, "cron", hour=2, minute=0, kwargs={"start": 0, "end": 9999})
+    # 매일 오전 7시 전체 스캔
+    scheduler.add_job(run_full_scan, "cron", hour=7, minute=0, kwargs={"start": 0, "end": 9999})
+    # 매일 오전 9시 X 자동 포스팅 (스캔 완료 후)
+    scheduler.add_job(post_to_x, "cron", hour=9, minute=0)
     scheduler.start()
-    print("✅ 스케줄러 시작 — 매일 새벽 2시 자동 스캔")
+    print("✅ 스케줄러 시작 — 매일 오전 7시 스캔, 9시 X 포스팅")
 
 
 @app.get("/")
 def root():
-    return {"message": "배당 스크리너 API v4.1 🚀"}
+    return {"message": "배당 스크리너 API v4.2 🚀"}
 
 
 @app.get("/search")
@@ -664,6 +707,13 @@ async def scan_all():
         print("🎉 전체 스캔 완료!")
     asyncio.create_task(run_sequential())
     return {"message": "전체 순차 스캔 시작! 화면 꺼도 됩니다 🚀"}
+
+
+@app.get("/post-now")
+async def post_now():
+    """X 포스팅 즉시 테스트"""
+    await post_to_x()
+    return {"message": "X 포스팅 완료 ✅"}
 
 
 @app.get("/ranking")

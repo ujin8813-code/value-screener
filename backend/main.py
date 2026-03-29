@@ -25,10 +25,10 @@ DATABASE_URL = os.environ.get(
     "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@crossover.proxy.rlwy.net:36008/railway"
 )
 
-X_API_KEY             = os.environ.get("WczzEGKJRSHrfCbC73N6PosVv")
-X_API_SECRET          = os.environ.get("23c5Oaey7Ci3spH91e0LOCpY5477iRg0aOgTXg8E7aXe7d3H5m")
-X_ACCESS_TOKEN        = os.environ.get("2038127304191135744-h0j4KyKtPAe9AiRQz4eF6tesl1VXMf")
-X_ACCESS_TOKEN_SECRET = os.environ.get("bT7P1QZJRWHsduERgW2MHfAwvHYj1HMn1X0OwA27BqBkP")
+X_API_KEY             = os.environ.get("zWfljqzajqAbTknAIr2dFrDdt")
+X_API_SECRET          = os.environ.get("FeK1FvAA5rvpQb6wkv90eHlQQ5mizSDxl5mISC1C3PlrArO7j0")
+X_ACCESS_TOKEN        = os.environ.get("2038127304191135744-cP2ts1HIjodWgbTHgrRu6nPJsxMntD")
+X_ACCESS_TOKEN_SECRET = os.environ.get("DSBITJ01MkcWeYpmas6qgJYyjJW3ooNZjT8tscCISmNZx")
 
 KR_NAME_MAP: dict = {}
 
@@ -509,7 +509,8 @@ async def post_to_x():
         tweet_text = "\n".join(lines)
 
         client = tweepy.Client(
-            consumer_key=api_key,
+            bearer_token=os.environ.get("X_BEARER_TOKEN"),
+            consumer_key=api_key
             consumer_secret=api_secret,
             access_token=access_token,
             access_token_secret=access_token_secret,

@@ -509,7 +509,6 @@ async def post_to_x():
         tweet_text = "\n".join(lines)
 
         client = tweepy.Client(
-            bearer_token=os.environ.get("X_BEARER_TOKEN"),
             consumer_key=api_key,
             consumer_secret=api_secret,
             access_token=access_token,

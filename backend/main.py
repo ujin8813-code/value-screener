@@ -467,10 +467,6 @@ async def post_to_x():
     print(f"🔑 X_ACCESS_TOKEN_SECRET: {X_ACCESS_TOKEN_SECRET[:5] if X_ACCESS_TOKEN_SECRET else 'None'}")
     try:
         if not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]):
-            
-    """매일 오전 9시 X에 우량주 랭킹 자동 포스팅"""
-    try:
-        if not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]):
             print("⚠️ X API 키 누락 — 포스팅 스킵")
             return
 

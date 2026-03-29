@@ -25,10 +25,10 @@ DATABASE_URL = os.environ.get(
     "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@crossover.proxy.rlwy.net:36008/railway"
 )
 
-X_API_KEY             = os.environ.get("EsxwO4yHwPKCWVh655BdPPHkv")
-X_API_SECRET          = os.environ.get("1HlyCNBVtkyuQnJY7xcUN5vGYSNj3i62RXGjBMhvlaxBB4WLl0")
-X_ACCESS_TOKEN        = os.environ.get("2038127304191135744-dqgZ8iwtKH9nKff0X3PMtHkMtaXq5s")
-X_ACCESS_TOKEN_SECRET = os.environ.get("8w3kibi6zh5goWJZfZyvnXF9vN83HlQNALX8gplz8CIgx")
+X_API_KEY             = os.environ.get("hoDK2N8dyaFFPNG6ESKOPiZ6C")
+X_API_SECRET          = os.environ.get("hqzRSQqVBNaPAB2IMn5MqXjpQWEc0iOwT2g5SvRRDML7df9oEr")
+X_ACCESS_TOKEN        = os.environ.get("2038127304191135744-o6ktasx6a93DiWw0yHDsTMG7cZrqdM")
+X_ACCESS_TOKEN_SECRET = os.environ.get("KvI3FArefiDyFqVzw3qCdpy1RIk2Us4hfXGmi8J5THEjy")
 
 KR_NAME_MAP: dict = {}
 

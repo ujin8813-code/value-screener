@@ -27,8 +27,8 @@ DATABASE_URL = os.environ.get(
 
 X_API_KEY             = os.environ.get("hoDK2N8dyaFFPNG6ESKOPiZ6C")
 X_API_SECRET          = os.environ.get("hqzRSQqVBNaPAB2IMn5MqXjpQWEc0iOwT2g5SvRRDML7df9oEr")
-X_ACCESS_TOKEN        = os.environ.get("2038127304191135744-o6ktasx6a93DiWw0yHDsTMG7cZrqdM")
-X_ACCESS_TOKEN_SECRET = os.environ.get("KvI3FArefiDyFqVzw3qCdpy1RIk2Us4hfXGmi8J5THEjy")
+X_ACCESS_TOKEN        = os.environ.get("2038127304191135744-5uRrZNLnbGqWvtSKpSQv8LGVvfsQK7")
+X_ACCESS_TOKEN_SECRET = os.environ.get("L6WJEwzkkYzSpJ3mEMxMEtweAW8oGOHaDDMVGSIMr2P4c")
 
 KR_NAME_MAP: dict = {}
 

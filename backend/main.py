@@ -461,12 +461,18 @@ def get_grade(score: int) -> dict:
 
 
 async def post_to_x():
-    print(f"🔑 X_API_KEY: {X_API_KEY[:5] if X_API_KEY else 'None'}")
-    print(f"🔑 X_API_SECRET: {X_API_SECRET[:5] if X_API_SECRET else 'None'}")
-    print(f"🔑 X_ACCESS_TOKEN: {X_ACCESS_TOKEN[:5] if X_ACCESS_TOKEN else 'None'}")
-    print(f"🔑 X_ACCESS_TOKEN_SECRET: {X_ACCESS_TOKEN_SECRET[:5] if X_ACCESS_TOKEN_SECRET else 'None'}")
+    api_key              = os.environ.get("X_API_KEY")
+    api_secret           = os.environ.get("X_API_SECRET")
+    access_token         = os.environ.get("X_ACCESS_TOKEN")
+    access_token_secret  = os.environ.get("X_ACCESS_TOKEN_SECRET")
+
+    print(f"🔑 X_API_KEY: {api_key[:5] if api_key else 'None'}")
+    print(f"🔑 X_API_SECRET: {api_secret[:5] if api_secret else 'None'}")
+    print(f"🔑 X_ACCESS_TOKEN: {access_token[:5] if access_token else 'None'}")
+    print(f"🔑 X_ACCESS_TOKEN_SECRET: {access_token_secret[:5] if access_token_secret else 'None'}")
+
     try:
-        if not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]):
+        if not all([api_key, api_secret, access_token, access_token_secret]):
             print("⚠️ X API 키 누락 — 포스팅 스킵")
             return
 
@@ -503,10 +509,10 @@ async def post_to_x():
         tweet_text = "\n".join(lines)
 
         client = tweepy.Client(
-            consumer_key=X_API_KEY,
-            consumer_secret=X_API_SECRET,
-            access_token=X_ACCESS_TOKEN,
-            access_token_secret=X_ACCESS_TOKEN_SECRET,
+            consumer_key=api_key,
+            consumer_secret=api_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret,
         )
         client.create_tweet(text=tweet_text)
         print(f"✅ X 포스팅 완료: {today}")

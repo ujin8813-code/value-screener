@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime
 import tweepy
 
-app = FastAPI(title="배당 스크리너 API", version="4.2.0")
+app = FastAPI(title="배당 스크리너 API", version="4.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,41 +53,6 @@ DOUBLE_LISTED = {
     "003550", "034730",
     "000660", "017670", "096770",
     "003490",
-}
-
-BUYBACK_EXCELLENT = {
-    "005380", "005385", "005387",
-    "000270", "000272",
-    "005930", "005935",
-    "086790", "105560", "055550",
-}
-
-DIVIDEND_GROWTH_10Y = set()
-
-DIVIDEND_GROWTH_5Y = {
-    "086790", "105560", "055550",
-}
-
-DIVIDEND_STABLE_3Y = {
-    "005930", "005935",
-    "005380", "005385", "005387",
-    "000270", "000272",
-    "086790", "105560", "055550", "316140",
-    "015760",
-}
-
-BUYBACK_RATIO = {
-    "000270": 2.5, "000272": 2.5,
-    "005380": 1.8, "005385": 1.8, "005387": 1.8,
-    "005930": 1.2, "005935": 1.2,
-    "086790": 1.5, "105560": 1.5, "055550": 1.0,
-}
-
-TREASURY_RATIO = {
-    "005930": 8.0, "005935": 8.0,
-    "005380": 3.0, "005385": 3.0, "005387": 3.0,
-    "000270": 1.5, "000272": 1.5,
-    "086790": 1.0, "105560": 1.0, "055550": 1.0,
 }
 
 
@@ -148,6 +113,49 @@ def detect_quarterly_dividend(stock) -> bool:
         return len(recent) >= 5
     except:
         return False
+
+
+def calc_dividend_growth(stock) -> dict:
+    """yfinance 배당 히스토리로 연속인상 연수 및 성장률 자동계산"""
+    result = {"consecutive_years": 0, "growth_rate": None, "has_dividend": False}
+    try:
+        dividends = stock.dividends
+        if dividends is None or len(dividends) == 0:
+            return result
+
+        result["has_dividend"] = True
+
+        # 연도별 배당 합산
+        div_by_year = {}
+        for date, amount in dividends.items():
+            year = date.year
+            div_by_year[year] = div_by_year.get(year, 0) + float(amount)
+
+        if len(div_by_year) < 2:
+            return result
+
+        years = sorted(div_by_year.keys(), reverse=True)
+
+        # 연속 인상 연수 계산
+        consecutive = 0
+        for i in range(len(years) - 1):
+            if div_by_year[years[i]] > div_by_year[years[i + 1]]:
+                consecutive += 1
+            else:
+                break
+        result["consecutive_years"] = consecutive
+
+        # 3년 배당 성장률 계산
+        if len(years) >= 4:
+            recent = div_by_year[years[0]]
+            three_ago = div_by_year[years[3]]
+            if three_ago > 0:
+                growth = ((recent / three_ago) ** (1/3) - 1) * 100
+                result["growth_rate"] = round(growth, 2)
+
+    except Exception as e:
+        print(f"배당 히스토리 계산 실패: {e}")
+    return result
 
 
 async def fetch_naver_metrics(ticker_code: str) -> dict:
@@ -296,10 +304,14 @@ def calc_category_a(info: dict, hist_financials: dict, naver: dict, ticker_code:
     return {"total": sum(scores.values()), "max": 35, "scores": scores, "details": details}
 
 
-def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: bool = False) -> dict:
+def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: bool = False, div_history: dict = None) -> dict:
+    """B 카테고리 — 딕셔너리 제거, 전부 자동계산"""
     scores = {}
     details = {}
+    if div_history is None:
+        div_history = {}
 
+    # 1. 배당수익률 (10점) — 소수점 연속 계산
     price    = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or 0
     div_rate = info.get("dividendRate", 0) or 0
     dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
@@ -309,10 +321,8 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
     dy_pct   = dy_calc or dy_yf or dy_nav
 
     if dy_pct and dy_pct > 0:
-        if dy_pct > 7:    scores["dividend_yield"] = 10
-        elif dy_pct > 5:  scores["dividend_yield"] = 7
-        elif dy_pct > 3:  scores["dividend_yield"] = 5
-        else:             scores["dividend_yield"] = 2
+        score_dy = min(10, round(dy_pct * 1.5, 1))  # 소수점 부드럽게
+        scores["dividend_yield"] = score_dy
         details["dividend_yield"] = round(dy_pct, 2)
         if dy_pct > 5:    details["dy_status"] = "고배당"
         elif dy_pct > 3:  details["dy_status"] = "양호"
@@ -322,6 +332,7 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
         details["dividend_yield"] = 0.0
         details["dy_status"] = None
 
+    # 2. 분기배당 (5점) — 자동감지
     if is_quarterly:
         scores["dividend_freq"] = 5
         details["dividend_freq"] = "분기 배당 ✅"
@@ -329,58 +340,66 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
         scores["dividend_freq"] = 0
         details["dividend_freq"] = "연 1회 배당"
 
-    if ticker_code in DIVIDEND_GROWTH_10Y:
-        scores["dividend_stability"] = 5
-        details["dividend_stability"] = "10년+ 연속 인상 ✅"
-    elif ticker_code in DIVIDEND_GROWTH_5Y:
-        scores["dividend_stability"] = 4
-        details["dividend_stability"] = "5년+ 연속 인상 ✅"
-    elif ticker_code in DIVIDEND_STABLE_3Y:
-        scores["dividend_stability"] = 3
-        details["dividend_stability"] = "3년+ 배당 유지"
+    # 3. 배당 연속인상 (10점) — yfinance 히스토리 자동계산
+    consecutive = div_history.get("consecutive_years", 0)
+    has_dividend = div_history.get("has_dividend", False)
+    if consecutive >= 10:
+        scores["dividend_growth"] = 10
+        details["dividend_growth"] = f"10년+ 연속 인상 ✅ ({consecutive}년)"
+    elif consecutive >= 5:
+        scores["dividend_growth"] = 7
+        details["dividend_growth"] = f"5년+ 연속 인상 ✅ ({consecutive}년)"
+    elif consecutive >= 3:
+        scores["dividend_growth"] = 5
+        details["dividend_growth"] = f"3년+ 연속 인상 ({consecutive}년)"
+    elif consecutive >= 1:
+        scores["dividend_growth"] = 3
+        details["dividend_growth"] = f"배당 인상 중 ({consecutive}년)"
+    elif has_dividend:
+        scores["dividend_growth"] = 1
+        details["dividend_growth"] = "배당 지급 중"
     else:
-        payout = info.get("payoutRatio", 0) or 0
-        if div_rate > 0 and 0 < payout < 0.8:
-            scores["dividend_stability"] = 1
-            details["dividend_stability"] = "배당 지속 중"
+        scores["dividend_growth"] = 0
+        details["dividend_growth"] = "배당 없음"
+
+    # 4. 배당성향 (8점) — yfinance payout ratio 자동
+    payout = info.get("payoutRatio") or 0
+    if payout and 0 < payout <= 1:
+        payout_pct = payout * 100
+        if 20 <= payout_pct <= 60:
+            scores["payout_ratio"] = 8
+            details["payout_ratio"] = f"배당성향 {payout_pct:.0f}% (이상적)"
+        elif payout_pct < 20:
+            scores["payout_ratio"] = 4
+            details["payout_ratio"] = f"배당성향 {payout_pct:.0f}% (낮음)"
+        elif payout_pct <= 80:
+            scores["payout_ratio"] = 5
+            details["payout_ratio"] = f"배당성향 {payout_pct:.0f}% (양호)"
         else:
-            scores["dividend_stability"] = 0
-            details["dividend_stability"] = "배당 이력 불명확"
-
-    if ticker_code in BUYBACK_EXCELLENT:
-        scores["buyback"] = 7
-        details["buyback"] = "정기 자사주 소각 ✅"
+            scores["payout_ratio"] = 1
+            details["payout_ratio"] = f"배당성향 {payout_pct:.0f}% (과다)"
     else:
-        scores["buyback"] = 0
-        details["buyback"] = "소각 미실시"
+        scores["payout_ratio"] = 3
+        details["payout_ratio"] = "배당성향 데이터 없음"
 
-    ratio = BUYBACK_RATIO.get(ticker_code, 0)
-    if ratio > 2.0:
-        scores["buyback_ratio"] = 8
-        details["buyback_ratio"] = f"연간 소각 {ratio}% (매우 강함)"
-    elif ratio > 1.5:
-        scores["buyback_ratio"] = 5
-        details["buyback_ratio"] = f"연간 소각 {ratio}% (강함)"
-    elif ratio > 0.5:
-        scores["buyback_ratio"] = 3
-        details["buyback_ratio"] = f"연간 소각 {ratio}% (보통)"
+    # 5. 배당 성장률 (7점) — yfinance 히스토리 자동계산
+    growth_rate = div_history.get("growth_rate")
+    if growth_rate is not None:
+        if growth_rate >= 10:
+            scores["div_growth_rate"] = 7
+            details["div_growth_rate"] = f"배당 성장률 {growth_rate:.1f}%/년 (우수)"
+        elif growth_rate >= 5:
+            scores["div_growth_rate"] = 5
+            details["div_growth_rate"] = f"배당 성장률 {growth_rate:.1f}%/년 (양호)"
+        elif growth_rate >= 0:
+            scores["div_growth_rate"] = 3
+            details["div_growth_rate"] = f"배당 성장률 {growth_rate:.1f}%/년 (보통)"
+        else:
+            scores["div_growth_rate"] = 0
+            details["div_growth_rate"] = f"배당 감소 {growth_rate:.1f}%/년"
     else:
-        scores["buyback_ratio"] = 0
-        details["buyback_ratio"] = "소각 비율 미미"
-
-    treasury = TREASURY_RATIO.get(ticker_code, -1)
-    if treasury == -1:
-        scores["treasury"] = 5
-        details["treasury"] = "자사주 없음 ✅"
-    elif treasury < 2.0:
-        scores["treasury"] = 4
-        details["treasury"] = f"자사주 {treasury}% (양호)"
-    elif treasury < 5.0:
-        scores["treasury"] = 2
-        details["treasury"] = f"자사주 {treasury}% (보통)"
-    else:
-        scores["treasury"] = 0
-        details["treasury"] = f"자사주 {treasury}% (과다)"
+        scores["div_growth_rate"] = 2
+        details["div_growth_rate"] = "성장률 데이터 없음"
 
     return {"total": sum(scores.values()), "max": 40, "scores": scores, "details": details}
 
@@ -465,11 +484,6 @@ async def post_to_x():
     api_secret           = os.environ.get("X_API_SECRET")
     access_token         = os.environ.get("X_ACCESS_TOKEN")
     access_token_secret  = os.environ.get("X_ACCESS_TOKEN_SECRET")
-
-    print(f"🔑 X_API_KEY: {api_key[:5] if api_key else 'None'}")
-    print(f"🔑 X_API_SECRET: {api_secret[:5] if api_secret else 'None'}")
-    print(f"🔑 X_ACCESS_TOKEN: {access_token[:5] if access_token else 'None'}")
-    print(f"🔑 X_ACCESS_TOKEN_SECRET: {access_token_secret[:5] if access_token_secret else 'None'}")
 
     try:
         if not all([api_key, api_secret, access_token, access_token_secret]):
@@ -556,6 +570,7 @@ async def analyze_ticker(ticker_code: str) -> dict | None:
             rev_growth = round(((revenues[0] - revenues[-1]) / abs(revenues[-1])) * 100, 2)
 
         is_quarterly = detect_quarterly_dividend(stock)
+        div_history  = calc_dividend_growth(stock)
 
         hist = {
             "operating_margins": op_margins,
@@ -563,7 +578,7 @@ async def analyze_ticker(ticker_code: str) -> dict | None:
         }
 
         cat_a = calc_category_a(info, hist, naver, ticker_code)
-        cat_b = calc_category_b(info, naver, ticker_code, is_quarterly)
+        cat_b = calc_category_b(info, naver, ticker_code, is_quarterly, div_history)
         cat_c = calc_category_c(info, ticker_code, hist)
         total = min(100, cat_a["total"] + cat_b["total"] + cat_c["total"])
         grade = get_grade(total)
@@ -650,9 +665,7 @@ async def startup():
     init_db()
     load_kr_names()
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
-    # 매일 오전 7시 전체 스캔
     scheduler.add_job(run_full_scan, "cron", hour=7, minute=0, kwargs={"start": 0, "end": 9999})
-    # 매일 오전 9시 X 자동 포스팅 (스캔 완료 후)
     scheduler.add_job(post_to_x, "cron", hour=9, minute=0)
     scheduler.start()
     print("✅ 스케줄러 시작 — 매일 오전 7시 스캔, 9시 X 포스팅")
@@ -660,7 +673,7 @@ async def startup():
 
 @app.get("/")
 def root():
-    return {"message": "배당 스크리너 API v4.2 🚀"}
+    return {"message": "배당 스크리너 API v4.3 🚀"}
 
 
 @app.get("/search")
@@ -720,7 +733,6 @@ async def scan_all():
 
 @app.get("/post-now")
 async def post_now():
-    """X 포스팅 즉시 테스트"""
     await post_to_x()
     return {"message": "X 포스팅 완료 ✅"}
 
@@ -777,10 +789,11 @@ async def debug(ticker_code: str):
         info  = stock.info
         p = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
         if p:
-            price    = p
-            div_rate = info.get("dividendRate", 0) or 0
-            dy_calc  = round((div_rate / price) * 100, 2) if price and div_rate else None
+            div_rate     = info.get("dividendRate", 0) or 0
+            price        = p
+            dy_calc      = round((div_rate / price) * 100, 2) if price and div_rate else None
             is_quarterly = detect_quarterly_dividend(stock)
+            div_history  = calc_dividend_growth(stock)
             return {
                 "yfinance": {
                     "priceToBook":      info.get("priceToBook"),
@@ -790,6 +803,7 @@ async def debug(ticker_code: str):
                     "dividendYield":    info.get("dividendYield"),
                     "dividendRate":     div_rate,
                     "dy_calc":          dy_calc,
+                    "payoutRatio":      info.get("payoutRatio"),
                     "operatingMargins": info.get("operatingMargins"),
                     "revenueGrowth":    info.get("revenueGrowth"),
                     "currentRatio":     info.get("currentRatio"),
@@ -798,10 +812,8 @@ async def debug(ticker_code: str):
                 "naver":              naver,
                 "name_kr":            KR_NAME_MAP.get(ticker_code, "없음"),
                 "is_quarterly":       is_quarterly,
+                "div_history":        div_history,
                 "is_double_listed":   ticker_code in DOUBLE_LISTED,
-                "has_buyback_policy": ticker_code in BUYBACK_EXCELLENT,
-                "buyback_ratio":      BUYBACK_RATIO.get(ticker_code, 0),
-                "treasury_ratio":     TREASURY_RATIO.get(ticker_code, -1),
             }
     return {"error": "종목을 찾을 수 없습니다"}
 
@@ -845,6 +857,7 @@ async def analyze(ticker_code: str):
             rev_growth = round(((revenues[0] - revenues[-1]) / abs(revenues[-1])) * 100, 2)
 
         is_quarterly = detect_quarterly_dividend(stock)
+        div_history  = calc_dividend_growth(stock)
 
         hist = {
             "operating_margins": op_margins,
@@ -852,7 +865,7 @@ async def analyze(ticker_code: str):
         }
 
         cat_a = calc_category_a(info, hist, naver, ticker_code)
-        cat_b = calc_category_b(info, naver, ticker_code, is_quarterly)
+        cat_b = calc_category_b(info, naver, ticker_code, is_quarterly, div_history)
         cat_c = calc_category_c(info, ticker_code, hist)
         total = min(100, cat_a["total"] + cat_b["total"] + cat_c["total"])
 
@@ -879,10 +892,12 @@ async def analyze(ticker_code: str):
                 "roe_status":     cat_a["details"].get("roe_status"),
                 "dividend_yield": cat_b["details"].get("dividend_yield"),
                 "dy_status":      cat_b["details"].get("dy_status"),
+                "dividend_growth": cat_b["details"].get("dividend_growth"),
+                "payout_ratio":   cat_b["details"].get("payout_ratio"),
+                "div_growth_rate": cat_b["details"].get("div_growth_rate"),
                 "op_margin":      cat_c["details"].get("op_margin"),
                 "rev_growth":     cat_c["details"].get("rev_growth"),
                 "current_ratio":  cat_c["details"].get("current_ratio"),
-                "buyback_policy": cat_b["details"].get("buyback"),
                 "listing":        cat_a["details"].get("listing"),
             }
         }

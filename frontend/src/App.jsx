@@ -25,10 +25,105 @@ const STATUS_CONFIG = {
   "위험":        { bg: "bg-red-500/20",     text: "text-red-300" },
   "주의":        { bg: "bg-amber-500/20",   text: "text-amber-300" },
   "금융업 예외": { bg: "bg-blue-500/20",    text: "text-blue-300" },
+  "업종대비 극저평가": { bg: "bg-emerald-500/20", text: "text-emerald-300" },
+  "업종대비 저평가":   { bg: "bg-emerald-500/20", text: "text-emerald-300" },
+  "업종대비 적정":     { bg: "bg-blue-500/20",    text: "text-blue-300" },
 };
 
 const fmt = (n) => n != null ? Number(n).toLocaleString("ko-KR") : "N/A";
 
+// ── 도넛 차트 ──────────────────────────────────────────────
+function DonutChart({ scoreA, scoreB, scoreC, total, grade }) {
+  const [anim, setAnim] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => setAnim(total), 300);
+    return () => clearTimeout(t);
+  }, [total]);
+
+  const R = 54, CX = 70, CY = 70;
+  const circ = 2 * Math.PI * R;
+  const maxTotal = 100;
+
+  // A: 35점, B: 40점, C: 25점
+  const pA = (scoreA / maxTotal) * circ;
+  const pB = (scoreB / maxTotal) * circ;
+  const pC = (scoreC / maxTotal) * circ;
+  const pEmpty = circ - pA - pB - pC;
+
+  // 시작 offset (top = -circ/4)
+  const startOffset = circ * 0.25;
+  const offA = circ - startOffset;
+  const offB = circ - startOffset - pA;
+  const offC = circ - startOffset - pA - pB;
+
+  const col = GRADE_CONFIG[grade]?.color || "#f87171";
+
+  const categories = [
+    { label: "A. 저평가 · 이익 퀄리티", score: scoreA, max: 35, color: "#60a5fa" },
+    { label: "B. 주주환원 · 배당",       score: scoreB, max: 40, color: "#34d399" },
+    { label: "C. 성장성 · 안정성",       score: scoreC, max: 25, color: "#a78bfa" },
+  ];
+
+  return (
+    <div className="flex items-center gap-4">
+      <div className="relative shrink-0" style={{ width: 140, height: 140 }}>
+        <svg width="140" height="140" viewBox="0 0 140 140">
+          {/* 배경 */}
+          <circle cx={CX} cy={CY} r={R} fill="none"
+            stroke="rgba(255,255,255,0.08)" strokeWidth="16"/>
+          {/* C */}
+          <circle cx={CX} cy={CY} r={R} fill="none"
+            stroke="#a78bfa" strokeWidth="16" strokeLinecap="butt"
+            strokeDasharray={`${pC} ${circ - pC}`}
+            strokeDashoffset={offC}
+            style={{ transition: "stroke-dasharray 1.2s cubic-bezier(0.34,1.56,0.64,1)" }}/>
+          {/* B */}
+          <circle cx={CX} cy={CY} r={R} fill="none"
+            stroke="#34d399" strokeWidth="16" strokeLinecap="butt"
+            strokeDasharray={`${pB} ${circ - pB}`}
+            strokeDashoffset={offB}
+            style={{ transition: "stroke-dasharray 1.2s cubic-bezier(0.34,1.56,0.64,1)" }}/>
+          {/* A */}
+          <circle cx={CX} cy={CY} r={R} fill="none"
+            stroke="#60a5fa" strokeWidth="16" strokeLinecap="butt"
+            strokeDasharray={`${pA} ${circ - pA}`}
+            strokeDashoffset={offA}
+            style={{ transition: "stroke-dasharray 1.2s cubic-bezier(0.34,1.56,0.64,1)" }}/>
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span style={{ fontSize: 32, fontWeight: 700, color: col, lineHeight: 1 }}>
+            {Math.round(anim)}
+          </span>
+          <span className="text-white/30 text-xs mt-0.5">/ 100점</span>
+        </div>
+      </div>
+
+      {/* 범례 */}
+      <div className="flex flex-col gap-3 flex-1">
+        {categories.map((c) => (
+          <div key={c.label}>
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: c.color }}/>
+              <span className="text-white/50 text-xs">{c.label}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full rounded-full"
+                  style={{ width: `${Math.round((c.score / c.max) * 100)}%`, background: c.color,
+                    transition: "width 1.2s cubic-bezier(0.34,1.56,0.64,1)" }}/>
+              </div>
+              <span className="text-white text-xs font-bold shrink-0">
+                {c.score}<span className="text-white/30">/{c.max}</span>
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 반원 게이지 ────────────────────────────────────────────
 function ValueGauge({ score, grade }) {
   const [anim, setAnim] = useState(0);
   useEffect(() => {
@@ -57,10 +152,7 @@ function ValueGauge({ score, grade }) {
           <defs>
             <filter id="glow">
               <feGaussianBlur stdDeviation="3" result="blur"/>
-              <feMerge>
-                <feMergeNode in="blur"/>
-                <feMergeNode in="SourceGraphic"/>
-              </feMerge>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
             </filter>
           </defs>
           <path d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`}
@@ -69,20 +161,13 @@ function ValueGauge({ score, grade }) {
             fill="none" stroke={col} strokeWidth="16" strokeLinecap="butt"
             strokeDasharray={`${prog.toFixed(1)} ${circ.toFixed(1)}`}
             filter="url(#glow)"
-            style={{ transition: "stroke-dasharray 1.4s cubic-bezier(0.34,1.56,0.64,1)" }}
-          />
+            style={{ transition: "stroke-dasharray 1.4s cubic-bezier(0.34,1.56,0.64,1)" }}/>
           {markers.map(({ score: s, label, color }) => {
             const rad = scoreToRad(s);
-            const cosR = Math.cos(rad);
-            const sinR = Math.sin(rad);
-            const ix  = CX + (R - 12) * cosR;
-            const iy  = CY - (R - 12) * sinR;
-            const ox  = CX + (R + 12) * cosR;
-            const oy  = CY - (R + 12) * sinR;
-            const lx  = CX + (R + 26) * cosR;
-            const ly  = CY - (R + 26) * sinR;
-            const nx  = CX + (R + 42) * cosR;
-            const ny  = CY - (R + 42) * sinR;
+            const ix = CX + (R - 12) * Math.cos(rad), iy = CY - (R - 12) * Math.sin(rad);
+            const ox = CX + (R + 12) * Math.cos(rad), oy = CY - (R + 12) * Math.sin(rad);
+            const lx = CX + (R + 26) * Math.cos(rad), ly = CY - (R + 26) * Math.sin(rad);
+            const nx = CX + (R + 42) * Math.cos(rad), ny = CY - (R + 42) * Math.sin(rad);
             return (
               <g key={label}>
                 <line x1={ix} y1={iy} x2={ox} y2={oy} stroke={color} strokeWidth="2.5" opacity="0.95"/>
@@ -108,27 +193,6 @@ function ValueGauge({ score, grade }) {
   );
 }
 
-function ScoreBar({ label, score, max, color }) {
-  const [w, setW] = useState(0);
-  useEffect(() => {
-    const t = setTimeout(() => setW(Math.round((score / max) * 100)), 500);
-    return () => clearTimeout(t);
-  }, [score, max]);
-  return (
-    <div className="mb-4">
-      <div className="flex justify-between mb-1">
-        <span className="text-white/70 text-sm">{label}</span>
-        <span className="text-white text-sm font-bold">{score}<span className="text-white/30">/{max}</span></span>
-      </div>
-      <div className="h-2.5 bg-white/10 rounded-full overflow-hidden">
-        <div className="h-full rounded-full"
-          style={{ width: `${w}%`, background: color, transition: "width 1.2s cubic-bezier(0.34,1.56,0.64,1)", boxShadow: `0 0 10px ${color}60` }}
-        />
-      </div>
-    </div>
-  );
-}
-
 function MetricCard({ label, value, unit = "", highlight = false, status = null }) {
   const sc = STATUS_CONFIG[status];
   return (
@@ -140,28 +204,6 @@ function MetricCard({ label, value, unit = "", highlight = false, status = null 
       <p className={`font-black text-xl ${highlight ? "text-blue-300" : value != null ? "text-white" : "text-white/30"}`}>
         {value != null ? `${value}${unit}` : "N/A"}
       </p>
-    </div>
-  );
-}
-
-function DebtCard({ value, grade }) {
-  const colorMap = {
-    "매우 안전":   { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-300" },
-    "안전":        { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-300" },
-    "양호":        { bg: "bg-blue-500/10",    border: "border-blue-500/30",    text: "text-blue-300" },
-    "주의":        { bg: "bg-amber-500/10",   border: "border-amber-500/30",   text: "text-amber-300" },
-    "위험":        { bg: "bg-red-500/10",     border: "border-red-500/30",     text: "text-red-300" },
-    "금융업 예외": { bg: "bg-blue-500/10",    border: "border-blue-500/30",    text: "text-blue-300" },
-    "N/A":         { bg: "bg-white/5",        border: "border-white/10",       text: "text-white/30" },
-  };
-  const c = colorMap[grade] || colorMap["N/A"];
-  return (
-    <div className={`p-4 rounded-xl border ${c.border} ${c.bg}`}>
-      <p className="text-white/40 text-xs mb-1">부채비율</p>
-      <div className="flex items-baseline gap-2">
-        <p className={`font-black text-xl ${c.text}`}>{value != null ? `${value}%` : "N/A"}</p>
-        {grade && grade !== "N/A" && <span className={`text-xs ${c.text}`}>{grade}</span>}
-      </div>
     </div>
   );
 }
@@ -320,7 +362,6 @@ function RankingPage({ onSelectTicker }) {
         </p>
       </div>
 
-      {/* 금융주 안내문 */}
       {hasFinancial && (
         <div className="p-3 rounded-xl border border-blue-500/30 bg-blue-500/10 flex items-start gap-2">
           <span className="text-blue-300 text-sm shrink-0">ⓘ</span>
@@ -407,14 +448,8 @@ function SearchInput({ onAnalyze }) {
   const isCode = /^\d+$/.test(query);
 
   useEffect(() => {
-    if (!query || query.length < 1) {
-      setSuggestions([]);
-      return;
-    }
-    if (isCode && query.length === 6) {
-      onAnalyze(query);
-      return;
-    }
+    if (!query || query.length < 1) { setSuggestions([]); return; }
+    if (isCode && query.length === 6) { onAnalyze(query); return; }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       try {
@@ -428,9 +463,7 @@ function SearchInput({ onAnalyze }) {
 
   useEffect(() => {
     const handleClick = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
-        setShowDrop(false);
-      }
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setShowDrop(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -443,9 +476,7 @@ function SearchInput({ onAnalyze }) {
         placeholder="종목명 또는 코드 (예: 삼성전자, 005930)"
         value={query}
         onChange={e => { setQuery(e.target.value); setShowDrop(true); }}
-        onKeyDown={e => {
-          if (e.key === "Enter" && isCode && query.length === 6) onAnalyze(query);
-        }}
+        onKeyDown={e => { if (e.key === "Enter" && isCode && query.length === 6) onAnalyze(query); }}
         className="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white text-base placeholder-white/20 focus:outline-none focus:border-blue-400 transition-all"
       />
       <button
@@ -478,17 +509,11 @@ export default function App() {
 
   const analyze = async (code) => {
     const t = code?.trim();
-    if (!t || t.length !== 6) {
-      setError("6자리 종목코드를 입력하세요");
-      return;
-    }
+    if (!t || t.length !== 6) { setError("6자리 종목코드를 입력하세요"); return; }
     setLoading(true); setError(""); setResult(null); setTab("screener");
     try {
       const res = await fetch(`${API_BASE}/analyze/${t}`);
-      if (!res.ok) {
-        const e = await res.json();
-        throw new Error(e.detail || "분석 실패");
-      }
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "분석 실패"); }
       setResult(await res.json());
     } catch (e) {
       setError(e.message || "서버 오류");
@@ -507,6 +532,7 @@ export default function App() {
   const grade = result?.grade?.grade;
   const cfg   = GRADE_CONFIG[grade] || GRADE_CONFIG["D"];
   const km    = result?.key_metrics || {};
+  const cats  = result?.categories;
 
   return (
     <div className="min-h-screen text-white"
@@ -547,11 +573,7 @@ export default function App() {
               ))}
             </div>
 
-            {loading && (
-              <div className="text-center py-12">
-                <div className="text-white/40 text-sm">분석 중...</div>
-              </div>
-            )}
+            {loading && <div className="text-center py-12"><div className="text-white/40 text-sm">분석 중...</div></div>}
 
             {error && (
               <div className="mb-4 p-4 rounded-xl border border-red-500/40 bg-red-500/10 text-red-300 text-sm">
@@ -562,6 +584,7 @@ export default function App() {
             {result && !loading && (
               <div className="space-y-4" style={{ animation: "fadeIn 0.5s ease-out" }}>
 
+                {/* 종목 헤더 */}
                 <div className={`p-5 rounded-2xl border ${cfg.border} bg-gradient-to-br ${cfg.bg}`}>
                   <div className="flex justify-between items-start">
                     <div>
@@ -578,28 +601,28 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* 반원 게이지 */}
                 <div className={`p-6 rounded-2xl border ${cfg.border} bg-white/5 text-center overflow-hidden`}>
                   <p className="text-white/30 text-xs tracking-widest uppercase mb-2">DIVIDEND SCORE</p>
                   <ValueGauge score={result.total_score} grade={grade} />
                   <p className={`mt-2 text-base font-black ${cfg.text}`}>{result.grade.label}</p>
                 </div>
 
-                <div className="text-center">
-                  <span className="text-white/20 text-xs">아래로 스크롤해서 상세 분석 보기</span>
-                  <div className="mt-1 flex justify-center">
-                    <svg className="w-4 h-4 text-white/20 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
-                </div>
-
+                {/* 도넛 차트 — 카테고리별 점수 */}
                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
                   <h3 className="text-white/40 text-xs tracking-widest uppercase mb-4">카테고리별 점수</h3>
-                  <ScoreBar label="🛡️ 이익 창출력 / 저평가" score={result.categories.a.total} max={35} color="#60a5fa" />
-                  <ScoreBar label="💰 주주환원 의지"         score={result.categories.b.total} max={40} color="#34d399" />
-                  <ScoreBar label="🚀 비즈니스 경쟁력"       score={result.categories.c.total} max={25} color="#a78bfa" />
+                  {cats && (
+                    <DonutChart
+                      scoreA={cats.a.total}
+                      scoreB={cats.b.total}
+                      scoreC={cats.c.total}
+                      total={result.total_score}
+                      grade={grade}
+                    />
+                  )}
                 </div>
 
+                {/* 핵심 지표 */}
                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
                   <h3 className="text-white/40 text-xs tracking-widest uppercase mb-3">핵심 지표</h3>
                   <div className="grid grid-cols-2 gap-3">
@@ -610,13 +633,18 @@ export default function App() {
                     <MetricCard label="영업이익률"  value={km.op_margin}      unit="%" />
                     <MetricCard label="매출 성장률" value={km.rev_growth}     unit="%" />
                   </div>
-                  <p className="text-white/20 text-xs text-right mt-3">📊 네이버 증권 기준</p>
+                  {km.sector_per && (
+                    <p className="text-white/20 text-xs mt-3">동일업종 PER: {km.sector_per}배 기준 상대평가 적용</p>
+                  )}
+                  <p className="text-white/20 text-xs text-right mt-1">📊 네이버 증권 기준</p>
                 </div>
 
+                {/* 시뮬레이터 */}
                 {km.dividend_yield > 0 && (
                   <DividendSimulator dividendYield={km.dividend_yield} />
                 )}
 
+                {/* 공유 버튼 */}
                 <button onClick={handleShare}
                   className="w-full py-4 rounded-2xl font-black text-lg text-white active:scale-95 transition-transform"
                   style={{ background: "linear-gradient(135deg,#fbbf24,#f97316)", boxShadow: "0 0 30px #fbbf2430" }}>

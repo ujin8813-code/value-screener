@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const TRADINGVIEW_AFFILIATE_URL = "https://kr.tradingview.com/chart/?aff_id=168749&aff_sub=dividend_scree&source=website";
 
 const GRADE_CONFIG = {
   S: { color: "#a78bfa", border: "border-violet-400", text: "text-violet-300", bg: "from-violet-500/20 to-purple-500/20" },
@@ -208,6 +209,33 @@ function MetricCard({ label, value, unit = "", highlight = false, status = null 
   );
 }
 
+function TradingViewAffiliate({ compact = false }) {
+  return (
+    <div className={`rounded-2xl border border-blue-400/30 bg-gradient-to-br from-blue-500/15 to-violet-500/10 ${compact ? "p-4" : "p-5"}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-lg">📈</span>
+        <span className="text-blue-300 text-xs font-bold tracking-wider">TRADINGVIEW 제휴 혜택</span>
+      </div>
+      <p className="text-white font-black text-base">실시간 차트로 기술적 흐름 확인</p>
+      <p className="text-white/50 text-xs mt-1 leading-relaxed">
+        신규 유료 플랜 구매 시 사용할 수 있는 $15 할인쿠폰이 제공됩니다.
+      </p>
+      <a
+        href={TRADINGVIEW_AFFILIATE_URL}
+        target="_blank"
+        rel="sponsored noopener noreferrer"
+        className="mt-3 w-full py-3 rounded-xl flex items-center justify-center font-black text-sm text-white active:scale-95 transition-transform"
+        style={{ background: "linear-gradient(135deg,#2563eb,#7c3aed)", boxShadow: "0 0 22px #3b82f630" }}
+      >
+        TradingView에서 차트 보기 →
+      </a>
+      <p className="text-white/20 text-[10px] text-center mt-2 leading-relaxed">
+        광고 · 이 제휴 링크를 통해 유료 플랜을 구매하면 사이트 운영자에게 수수료가 지급될 수 있습니다.
+      </p>
+    </div>
+  );
+}
+
 function DividendSimulator({ dividendYield }) {
   const [principal, setPrincipal] = useState(10000000);
   const [years,     setYears]     = useState(10);
@@ -326,8 +354,8 @@ function DividendSimulator({ dividendYield }) {
           <p className="text-blue-300 font-black text-base">+{gainPct}%</p>
         </div>
       </div>
-      <div className="mt-4 p-3 rounded-xl border border-dashed border-white/15 text-center">
-        <p className="text-white/25 text-xs">📌 광고 영역 — 증권사 계좌개설 CPA 링크</p>
+      <div className="mt-4">
+        <TradingViewAffiliate compact />
       </div>
     </div>
   );
@@ -657,6 +685,8 @@ export default function App() {
                   )}
                   <p className="text-white/20 text-xs text-right mt-1">📊 네이버 증권 기준</p>
                 </div>
+
+                <TradingViewAffiliate />
 
                 {/* 시뮬레이터 */}
                 {km.dividend_yield > 0 && (

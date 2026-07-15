@@ -337,18 +337,25 @@ function RankingPage({ onSelectTicker }) {
   const [rankings, setRankings] = useState([]);
   const [lastScan, setLastScan] = useState(null);
   const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState("");
 
   const hasFinancial = rankings.some(r => r.sector === "Financial Services");
 
   useEffect(() => {
-    fetch(`${API_BASE}/ranking`)
-      .then(r => r.json())
+    fetch(`${API_BASE}/ranking`, { cache: "no-store" })
+      .then(r => {
+        if (!r.ok) throw new Error("랭킹을 불러오지 못했습니다.");
+        return r.json();
+      })
       .then(data => {
         setRankings(data.rankings || []);
         setLastScan(data.last_scan);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(e => {
+        setError(e.message || "랭킹을 불러오지 못했습니다.");
+        setLoading(false);
+      });
   }, []);
 
   return (
@@ -357,10 +364,22 @@ function RankingPage({ onSelectTicker }) {
         <h2 className="text-white font-black text-xl">🏆 배당 우량주 랭킹</h2>
         <p className="text-white/30 text-xs mt-1">
           {lastScan
-            ? `${lastScan.scanned_at} 기준 · ${lastScan.total_scanned}개 분석 · ${lastScan.total_qualified}개 선정`
-            : "데이터 로딩 중..."}
+            ? `${lastScan.scanned_at} 기준 · ${lastScan.total_scanned}개 분석 · ${rankings.length}개 표시`
+            : loading ? "데이터 로딩 중..." : "마지막 갱신 기록이 없습니다"}
         </p>
       </div>
+
+      {!loading && (!lastScan || lastScan.is_stale) && (
+        <div className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200/80 text-xs leading-relaxed">
+          ⚠️ 마지막 갱신이 오래됐습니다. 서버에서 새 랭킹을 계산 중일 수 있으며, 완료되면 이 날짜가 바뀝니다.
+        </div>
+      )}
+
+      {error && (
+        <div className="p-3 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 text-xs">
+          ⚠️ {error}
+        </div>
+      )}
 
       {hasFinancial && (
         <div className="p-3 rounded-xl border border-blue-500/30 bg-blue-500/10 flex items-start gap-2">
@@ -376,7 +395,7 @@ function RankingPage({ onSelectTicker }) {
       ) : rankings.length === 0 ? (
         <div className="p-6 rounded-2xl border border-white/10 bg-white/5 text-center">
           <p className="text-white/40 text-sm">아직 스캔 데이터가 없습니다</p>
-          <p className="text-white/20 text-xs mt-1">매일 새벽 2시 자동 업데이트</p>
+          <p className="text-white/20 text-xs mt-1">매일 오전 2시 자동 업데이트</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -433,7 +452,7 @@ function RankingPage({ onSelectTicker }) {
           })}
         </div>
       )}
-      <p className="text-white/15 text-xs text-center">매일 새벽 2시 자동 업데이트 · 클릭하면 상세 분석</p>
+      <p className="text-white/15 text-xs text-center">매일 오전 2시 갱신 시작 · 클릭하면 상세 분석</p>
     </div>
   );
 }

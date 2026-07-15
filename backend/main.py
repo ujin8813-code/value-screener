@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import yfinance as yf
@@ -7,23 +7,23 @@ import httpx
 import psycopg2
 import os
 import asyncio
+import secrets
 from datetime import datetime
 import tweepy
 
-app = FastAPI(title="배당 스크리너 API", version="4.4.0")
+app = FastAPI(title="배당 스크리너 API", version="4.5.0")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://postgres:QCfWStztJzsQBAxGkolDhPhEAZkSNrrv@crossover.proxy.rlwy.net:36008/railway"
-)
+DATABASE_URL = os.environ.get("DATABASE_URL")
+ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY")
+STALE_AFTER_HOURS = int(os.environ.get("STALE_AFTER_HOURS", "30"))
 
 X_API_KEY             = os.environ.get("X_API_KEY")
 X_API_SECRET          = os.environ.get("X_API_SECRET")
@@ -31,6 +31,7 @@ X_ACCESS_TOKEN        = os.environ.get("X_ACCESS_TOKEN")
 X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET")
 
 KR_NAME_MAP: dict = {}
+SCAN_LOCK = asyncio.Lock()
 
 def load_kr_names():
     global KR_NAME_MAP
@@ -57,7 +58,34 @@ DOUBLE_LISTED = {
 
 
 def get_db():
-    return psycopg2.connect(DATABASE_URL)
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL 환경변수가 설정되지 않았습니다.")
+    return psycopg2.connect(DATABASE_URL, options="-c timezone=Asia/Seoul")
+
+
+def require_admin(x_admin_key: str | None = Header(default=None)):
+    if not ADMIN_API_KEY:
+        raise HTTPException(status_code=503, detail="ADMIN_API_KEY 환경변수가 설정되지 않았습니다.")
+    if not x_admin_key or not secrets.compare_digest(x_admin_key, ADMIN_API_KEY):
+        raise HTTPException(status_code=401, detail="관리자 인증에 실패했습니다.")
+
+
+def is_ranking_stale() -> bool:
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT scanned_at IS NULL OR
+                   scanned_at < (NOW() AT TIME ZONE 'Asia/Seoul') - (%s * INTERVAL '1 hour')
+            FROM (SELECT MAX(scanned_at) AS scanned_at FROM scan_log) latest
+        """, (STALE_AFTER_HOURS,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return bool(row[0]) if row else True
+    except Exception as e:
+        print(f"랭킹 최신 상태 확인 실패: {e}")
+        return True
 
 
 def init_db():
@@ -499,11 +527,11 @@ def calc_category_c(info: dict, ticker_code: str, hist_financials: dict) -> dict
 
 
 def get_grade(score: int) -> dict:
-    if score >= 90: return {"grade": "S", "label": "최고의 매수 기회 · 강력 매수",    "color": "#a78bfa"}
-    if score >= 80: return {"grade": "A", "label": "장기투자 강력 추천 · 적극 매수",  "color": "#10b981"}
-    if score >= 70: return {"grade": "B", "label": "한국 시장 우량주 · 매수 고려",    "color": "#3b82f6"}
-    if score >= 50: return {"grade": "C", "label": "보유 유지 · 추가 매수 신중",      "color": "#f59e0b"}
-    return             {"grade": "D", "label": "장기투자 비추천",                  "color": "#ef4444"}
+    if score >= 90: return {"grade": "S", "label": "정량지표 최상위 · 추가 분석 권장", "color": "#a78bfa"}
+    if score >= 80: return {"grade": "A", "label": "정량지표 우수 · 추가 분석 권장",   "color": "#10b981"}
+    if score >= 70: return {"grade": "B", "label": "정량지표 양호 · 추가 검토",        "color": "#3b82f6"}
+    if score >= 50: return {"grade": "C", "label": "일부 지표 보통 · 신중한 검토 필요", "color": "#f59e0b"}
+    return             {"grade": "D", "label": "정량지표 미흡 · 위험요인 확인 필요",   "color": "#ef4444"}
 
 
 async def post_to_x():
@@ -631,35 +659,16 @@ async def analyze_ticker(ticker_code: str) -> dict | None:
         return None
 
 
-async def run_full_scan(start: int = 0, end: int = 100):
-    print(f"🔍 스캔 시작 ({start}~{end}): {datetime.now()}")
+def save_rankings(results: list[dict], total_scanned: int, replace_existing: bool):
+    conn = get_db()
     try:
-        import FinanceDataReader as fdr
-        kospi = fdr.StockListing('KOSPI')
-        tickers = kospi['Code'].tolist()
-    except Exception as e:
-        print(f"종목 리스트 수집 실패: {e}")
-        tickers = [
-            "005930", "000660", "005380", "005387", "000270",
-            "086790", "105560", "055550", "316140", "017670",
-            "034730", "003550", "015760", "032830", "028260",
-        ]
-
-    target = tickers[start:end]
-    qualified = []
-    total_scanned = 0
-
-    for ticker in target:
-        result = await analyze_ticker(ticker)
-        total_scanned += 1
-        if result and result["score"] >= 60:
-            qualified.append(result)
-            print(f"✅ {ticker} {result['name']} — {result['score']}점 ({result['grade']}등급)")
-
-    try:
-        conn = get_db()
         cur = conn.cursor()
-        for r in qualified:
+        if replace_existing:
+            # 새 스캔 결과가 모두 준비된 뒤 같은 트랜잭션에서 교체한다.
+            # 아래 저장 중 오류가 나면 DELETE도 함께 롤백되어 이전 랭킹이 보존된다.
+            cur.execute("DELETE FROM rankings")
+
+        for r in results:
             cur.execute("""
                 INSERT INTO rankings
                 (ticker, name, name_kr, score, grade, grade_label, per, pbr, roe, dividend_yield, sector, updated_at)
@@ -675,16 +684,81 @@ async def run_full_scan(start: int = 0, end: int = 100):
                 r["grade_label"], r["per"], r["pbr"], r["roe"],
                 r["dividend_yield"], r["sector"]
             ))
-        cur.execute("""
-            INSERT INTO scan_log (total_scanned, total_qualified)
-            VALUES (%s, %s)
-        """, (total_scanned, len(qualified)))
+
+        if replace_existing:
+            cur.execute("""
+                INSERT INTO scan_log (total_scanned, total_qualified)
+                VALUES (%s, %s)
+            """, (total_scanned, len(results)))
         conn.commit()
         cur.close()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
         conn.close()
-        print(f"✅ 스캔 완료: {total_scanned}개 중 {len(qualified)}개 저장")
-    except Exception as e:
-        print(f"DB 저장 실패: {e}")
+
+
+async def run_full_scan(start: int = 0, end: int = 100, replace_existing: bool = False):
+    if SCAN_LOCK.locked():
+        print("⚠️ 이미 스캔이 실행 중이라 새 요청을 건너뜁니다.")
+        return {"status": "already_running"}
+
+    async with SCAN_LOCK:
+        print(f"🔍 스캔 시작 ({start}~{end}): {datetime.now()}")
+        try:
+            import FinanceDataReader as fdr
+            kospi = fdr.StockListing('KOSPI')
+            tickers = kospi['Code'].tolist()
+        except Exception as e:
+            print(f"종목 리스트 수집 실패: {e}")
+            if replace_existing:
+                print("⚠️ 전체 종목 목록이 없어 기존 랭킹을 보존합니다.")
+                return {"status": "failed", "reason": "ticker_list_unavailable"}
+            tickers = [
+                "005930", "000660", "005380", "005387", "000270",
+                "086790", "105560", "055550", "316140", "017670",
+                "034730", "003550", "015760", "032830", "028260",
+            ]
+
+        target = tickers[max(0, start):max(0, end)]
+        if not target:
+            print("⚠️ 스캔할 종목이 없습니다.")
+            return {"status": "failed", "reason": "empty_target"}
+
+        qualified = []
+        successful = 0
+        for ticker in target:
+            result = await analyze_ticker(ticker)
+            if result:
+                successful += 1
+                if result["score"] >= 60:
+                    qualified.append(result)
+                    print(f"✅ {ticker} {result['name']} — {result['score']}점 ({result['grade']}등급)")
+            await asyncio.sleep(0)
+
+        # 외부 데이터 장애로 절반 이상 분석에 실패했으면 빈/불완전 결과로 교체하지 않는다.
+        minimum_success = max(1, len(target) // 2)
+        if replace_existing and successful < minimum_success:
+            print(f"⚠️ 분석 성공률 부족({successful}/{len(target)}). 기존 랭킹을 보존합니다.")
+            return {"status": "failed", "reason": "low_success_rate"}
+        if replace_existing and not qualified:
+            print("⚠️ 기준 점수 이상 종목이 없어 기존 랭킹을 보존합니다.")
+            return {"status": "failed", "reason": "no_qualified_results"}
+
+        try:
+            save_rankings(qualified, len(target), replace_existing)
+            mode = "교체" if replace_existing else "반영"
+            print(f"✅ 스캔 완료: {len(target)}개 중 {successful}개 분석 성공, {len(qualified)}개 {mode}")
+            return {
+                "status": "completed",
+                "total_scanned": len(target),
+                "successful": successful,
+                "total_qualified": len(qualified),
+            }
+        except Exception as e:
+            print(f"DB 저장 실패: {e}")
+            return {"status": "failed", "reason": "database_error"}
 
 
 @app.on_event("startup")
@@ -692,15 +766,45 @@ async def startup():
     init_db()
     load_kr_names()
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
-    scheduler.add_job(run_full_scan, "cron", hour=7, minute=0, kwargs={"start": 0, "end": 9999})
-    scheduler.add_job(post_to_x, "cron", hour=9, minute=0)
+    scheduler.add_job(
+        run_full_scan,
+        "cron",
+        hour=2,
+        minute=0,
+        kwargs={"start": 0, "end": 9999, "replace_existing": True},
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(post_to_x, "cron", hour=9, minute=0, max_instances=1, coalesce=True)
     scheduler.start()
-    print("✅ 스케줄러 시작 — 매일 오전 7시 스캔, 9시 X 포스팅")
+    app.state.scheduler = scheduler
+    print("✅ 스케줄러 시작 — 매일 오전 2시 스캔, 9시 X 포스팅")
+
+    if is_ranking_stale():
+        print("⚠️ 랭킹 데이터가 오래되어 시작 직후 전체 갱신을 실행합니다.")
+        asyncio.create_task(run_full_scan(0, 9999, replace_existing=True))
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    scheduler = getattr(app.state, "scheduler", None)
+    if scheduler and scheduler.running:
+        scheduler.shutdown(wait=False)
 
 
 @app.get("/")
 def root():
-    return {"message": "배당 스크리너 API v4.4 🚀"}
+    return {"message": "배당 스크리너 API v4.5 🚀"}
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "scan_running": SCAN_LOCK.locked(),
+        "ranking_stale": is_ranking_stale(),
+    }
 
 
 @app.get("/search")
@@ -717,7 +821,7 @@ async def search(q: str):
     return {"results": results}
 
 
-@app.get("/reset-rankings")
+@app.post("/reset-rankings", dependencies=[Depends(require_admin)])
 async def reset_rankings():
     try:
         conn = get_db()
@@ -732,33 +836,25 @@ async def reset_rankings():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/scan-now")
+@app.post("/scan-now", dependencies=[Depends(require_admin)])
 async def trigger_scan(start: int = 0, end: int = 100):
-    asyncio.create_task(run_full_scan(start, end))
+    if SCAN_LOCK.locked():
+        raise HTTPException(status_code=409, detail="이미 스캔이 실행 중입니다.")
+    if start < 0 or end <= start or end - start > 200:
+        raise HTTPException(status_code=400, detail="한 번에 1~200개 범위만 스캔할 수 있습니다.")
+    asyncio.create_task(run_full_scan(start, end, replace_existing=False))
     return {"message": f"스캔 시작: {start}~{end}번째 종목"}
 
 
-@app.get("/scan-all")
+@app.post("/scan-all", dependencies=[Depends(require_admin)])
 async def scan_all():
-    async def run_sequential():
-        try:
-            import FinanceDataReader as fdr
-            kospi = fdr.StockListing('KOSPI')
-            total = len(kospi['Code'].tolist())
-        except:
-            total = 1000
-        print(f"🚀 전체 순차 스캔 시작! 총 {total}개 종목")
-        for start in range(0, total, 100):
-            end = min(start + 100, total)
-            await run_full_scan(start, end)
-            print(f"⏳ {start}~{end} 완료. 30초 대기...")
-            await asyncio.sleep(30)
-        print("🎉 전체 스캔 완료!")
-    asyncio.create_task(run_sequential())
-    return {"message": "전체 순차 스캔 시작! 화면 꺼도 됩니다 🚀"}
+    if SCAN_LOCK.locked():
+        raise HTTPException(status_code=409, detail="이미 스캔이 실행 중입니다.")
+    asyncio.create_task(run_full_scan(0, 9999, replace_existing=True))
+    return {"message": "전체 스캔을 시작했습니다. 완료 전까지 기존 랭킹이 유지됩니다. 🚀"}
 
 
-@app.get("/post-now")
+@app.post("/post-now", dependencies=[Depends(require_admin)])
 async def post_now():
     await post_to_x()
     return {"message": "X 포스팅 완료 ✅"}
@@ -778,6 +874,7 @@ async def get_ranking():
         rows = cur.fetchall()
         cur.execute("SELECT scanned_at, total_scanned, total_qualified FROM scan_log ORDER BY scanned_at DESC LIMIT 1")
         log = cur.fetchone()
+        stale = is_ranking_stale()
         cur.close()
         conn.close()
         return {
@@ -802,6 +899,7 @@ async def get_ranking():
                 "scanned_at":      log[0].strftime("%Y-%m-%d %H:%M") if log else None,
                 "total_scanned":   log[1] if log else 0,
                 "total_qualified": log[2] if log else 0,
+                "is_stale":        stale,
             } if log else None
         }
     except Exception as e:

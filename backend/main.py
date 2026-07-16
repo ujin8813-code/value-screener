@@ -31,17 +31,24 @@ X_ACCESS_TOKEN        = os.environ.get("X_ACCESS_TOKEN")
 X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET")
 
 KR_NAME_MAP: dict = {}
+KR_STOCKS: list[dict] = []
 SCAN_LOCK = asyncio.Lock()
 
 def load_kr_names():
-    global KR_NAME_MAP
+    global KR_NAME_MAP, KR_STOCKS
     try:
         import FinanceDataReader as fdr
         import pandas as pd
         kospi  = fdr.StockListing('KOSPI')
         kosdaq = fdr.StockListing('KOSDAQ')
-        combined = pd.concat([kospi, kosdaq])
+        kospi = kospi.assign(Market="KOSPI")
+        kosdaq = kosdaq.assign(Market="KOSDAQ")
+        combined = pd.concat([kospi, kosdaq], ignore_index=True)
         KR_NAME_MAP = dict(zip(combined['Code'], combined['Name']))
+        KR_STOCKS = [
+            {"ticker": str(row.Code).zfill(6), "name": row.Name, "market": row.Market}
+            for row in combined[['Code', 'Name', 'Market']].itertuples(index=False)
+        ]
         print(f"✅ 한국어 종목명 {len(KR_NAME_MAP)}개 로드 완료")
     except Exception as e:
         print(f"한국어 종목명 로드 실패: {e}")
@@ -819,6 +826,20 @@ async def search(q: str):
         if len(results) >= 10:
             break
     return {"results": results}
+
+
+@app.get("/stocks")
+async def get_stocks(market: str = "KOSPI"):
+    """SEO 사이트맵과 종목별 공유 페이지 생성용 목록."""
+    normalized_market = market.strip().upper()
+    if normalized_market not in {"KOSPI", "KOSDAQ", "ALL"}:
+        raise HTTPException(status_code=400, detail="market은 KOSPI, KOSDAQ, ALL 중 하나여야 합니다")
+
+    stocks = KR_STOCKS
+    if normalized_market != "ALL":
+        stocks = [stock for stock in KR_STOCKS if stock["market"] == normalized_market]
+
+    return {"market": normalized_market, "count": len(stocks), "stocks": stocks}
 
 
 @app.post("/reset-rankings", dependencies=[Depends(require_admin)])

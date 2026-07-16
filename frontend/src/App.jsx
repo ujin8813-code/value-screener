@@ -1,7 +1,48 @@
 import { useState, useEffect, useRef } from "react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const SITE_URL = "https://www.배당스크리너.com";
 const TRADINGVIEW_AFFILIATE_URL = "https://kr.tradingview.com/chart/?aff_id=168749&aff_sub=dividend_scree&source=website";
+
+const DEFAULT_SEO = {
+  title: "배당 스크리너 - 한국 배당주 100점 만점 분석기",
+  description: "한국 배당주를 100점 만점으로 분석하는 배당 스크리너. PER, PBR, ROE, 배당수익률, 자사주 소각 등 핵심 지표를 한눈에 확인하세요.",
+  url: SITE_URL,
+};
+
+const getTickerFromPath = () => {
+  const match = window.location.pathname.match(/^\/stock\/(\d{6})\/?$/);
+  return match?.[1] || null;
+};
+
+const setMetaContent = (selector, content) => {
+  const element = document.querySelector(selector);
+  if (element) element.setAttribute("content", content);
+};
+
+const updateSeo = (stock = null) => {
+  const km = stock?.key_metrics || {};
+  const title = stock
+    ? `${stock.name} 배당금·배당수익률·배당점수 | 배당스크리너`
+    : DEFAULT_SEO.title;
+  const description = stock
+    ? `${stock.name}(${stock.ticker}) 배당점수 ${stock.total_score}점, ${stock.grade.grade}등급. PER ${km.per ?? "N/A"}, ROE ${km.roe ?? "N/A"}%, 배당수익률 ${km.dividend_yield ?? "N/A"}%를 한눈에 확인하세요.`
+    : DEFAULT_SEO.description;
+  const url = stock ? `${SITE_URL}/stock/${stock.ticker}` : DEFAULT_SEO.url;
+
+  document.title = title;
+  setMetaContent('meta[name="description"]', description);
+  setMetaContent('meta[property="og:title"]', title);
+  setMetaContent('meta[property="og:description"]', description);
+  setMetaContent('meta[property="og:url"]', url);
+  setMetaContent('meta[name="twitter:title"]', title);
+  setMetaContent('meta[name="twitter:description"]', description);
+  document.querySelector('link[rel="canonical"]')?.setAttribute("href", url);
+};
+
+const trackEvent = (name, params = {}) => {
+  if (typeof window.gtag === "function") window.gtag("event", name, params);
+};
 
 const GRADE_CONFIG = {
   S: { color: "#a78bfa", border: "border-violet-400", text: "text-violet-300", bg: "from-violet-500/20 to-purple-500/20" },
@@ -224,6 +265,7 @@ function TradingViewAffiliate({ compact = false }) {
         href={TRADINGVIEW_AFFILIATE_URL}
         target="_blank"
         rel="sponsored noopener noreferrer"
+        onClick={() => trackEvent("affiliate_click", { partner: "tradingview", placement: compact ? "simulator" : "analysis" })}
         className="mt-3 w-full py-3 rounded-xl flex items-center justify-center font-black text-sm text-white active:scale-95 transition-transform"
         style={{ background: "linear-gradient(135deg,#2563eb,#7c3aed)", boxShadow: "0 0 22px #3b82f630" }}
       >
@@ -554,14 +596,19 @@ export default function App() {
   const [result,  setResult]  = useState(null);
   const [error,   setError]   = useState("");
 
-  const analyze = async (code) => {
+  const analyze = async (code, { updateUrl = true } = {}) => {
     const t = code?.trim();
     if (!t || t.length !== 6) { setError("6자리 종목코드를 입력하세요"); return; }
     setLoading(true); setError(""); setResult(null); setTab("screener");
     try {
       const res = await fetch(`${API_BASE}/analyze/${t}`);
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "분석 실패"); }
-      setResult(await res.json());
+      const data = await res.json();
+      setResult(data);
+      if (updateUrl && window.location.pathname !== `/stock/${t}`) {
+        window.history.pushState({ ticker: t }, "", `/stock/${t}`);
+      }
+      trackEvent("stock_analyze", { ticker: t, stock_name: data.name, score: data.total_score });
     } catch (e) {
       setError(e.message || "서버 오류");
     } finally {
@@ -569,17 +616,47 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    const syncFromLocation = () => {
+      const ticker = getTickerFromPath();
+      if (ticker) analyze(ticker, { updateUrl: false });
+      else {
+        setResult(null);
+        setError("");
+        updateSeo();
+      }
+    };
+
+    syncFromLocation();
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, []);
+
+  useEffect(() => {
+    if (result) updateSeo(result);
+    else if (!getTickerFromPath()) updateSeo();
+  }, [result]);
+
   const handleShare = () => {
     if (!result) return;
-    const text = `📊 ${result.name} 배당주 분석\n총점: ${result.total_score}점\n등급: ${result.grade.grade}등급 — ${result.grade.label}\n\n🔗 지금 분석해보기: ${window.location.href}`;
-    if (navigator.share) navigator.share({ title: "배당 스크리너", text });
-    else { navigator.clipboard?.writeText(text); alert("📋 클립보드에 복사됐습니다!"); }
+    const url = `${SITE_URL}/stock/${result.ticker}`;
+    const text = `📊 ${result.name} 배당주 분석\n총점: ${result.total_score}점\n등급: ${result.grade.grade}등급 — ${result.grade.label}`;
+    trackEvent("stock_share", { ticker: result.ticker, method: navigator.share ? "native" : "clipboard" });
+    if (navigator.share) navigator.share({ title: `${result.name} 배당주 분석`, text, url }).catch(() => {});
+    else { navigator.clipboard?.writeText(`${text}\n\n🔗 ${url}`); alert("📋 클립보드에 복사됐습니다!"); }
   };
 
   const grade = result?.grade?.grade;
   const cfg   = GRADE_CONFIG[grade] || GRADE_CONFIG["D"];
   const km    = result?.key_metrics || {};
   const cats  = result?.categories;
+
+  const showRanking = () => {
+    setTab("ranking");
+    setResult(null);
+    if (window.location.pathname !== "/") window.history.pushState({}, "", "/");
+    updateSeo();
+  };
 
   return (
     <div className="min-h-screen text-white"
@@ -602,7 +679,7 @@ export default function App() {
             className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${tab === "screener" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"}`}>
             🔍 종목 분석
           </button>
-          <button onClick={() => setTab("ranking")}
+          <button onClick={showRanking}
             className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${tab === "ranking" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"}`}>
             🏆 우량주 랭킹
           </button>
@@ -722,7 +799,7 @@ export default function App() {
             <span className="text-xl">🔍</span>
             <span className="text-xs font-medium">종목 분석</span>
           </button>
-          <button onClick={() => setTab("ranking")}
+          <button onClick={showRanking}
             className={`flex-1 py-4 flex flex-col items-center gap-1 transition-all ${tab === "ranking" ? "text-amber-400" : "text-white/30"}`}>
             <span className="text-xl">🏆</span>
             <span className="text-xs font-medium">우량주 랭킹</span>

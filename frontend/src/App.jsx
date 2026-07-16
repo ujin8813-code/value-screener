@@ -42,7 +42,45 @@ const updateSeo = (stock = null) => {
 
 const trackEvent = (name, params = {}) => {
   if (typeof window.gtag === "function") window.gtag("event", name, params);
+  sendInternalEvent(name, params);
 };
+
+const getAnonymousVisitorId = () => {
+  const key = "dividend_screener_visitor_id";
+  try {
+    let visitorId = localStorage.getItem(key);
+    if (!visitorId) {
+      visitorId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(key, visitorId);
+    }
+    return visitorId;
+  } catch {
+    return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+};
+
+const getReferrerHost = () => {
+  if (!document.referrer) return null;
+  try { return new URL(document.referrer).hostname; }
+  catch { return null; }
+};
+
+function sendInternalEvent(eventName, params = {}) {
+  if (window.location.pathname.startsWith("/admin")) return;
+  const payload = {
+    visitor_id: getAnonymousVisitorId(),
+    event_name: eventName,
+    path: window.location.pathname,
+    ticker: params.ticker || getTickerFromPath(),
+    referrer: getReferrerHost(),
+  };
+  fetch(`${API_BASE}/analytics/event`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).catch(() => {});
+}
 
 const GRADE_CONFIG = {
   S: { color: "#a78bfa", border: "border-violet-400", text: "text-violet-300", bg: "from-violet-500/20 to-purple-500/20" },
@@ -590,7 +628,192 @@ function SearchInput({ onAnalyze }) {
   );
 }
 
+const EVENT_LABELS = {
+  page_view: "페이지 조회",
+  stock_analyze: "종목 분석",
+  stock_share: "결과 공유",
+  affiliate_click: "TradingView 클릭",
+};
+
+function AdminDashboard() {
+  const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem("dividend_admin_key") || "");
+  const [inputKey, setInputKey] = useState("");
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const loadAnalytics = async (key = adminKey) => {
+    if (!key) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/admin/analytics`, {
+        cache: "no-store",
+        headers: { "X-Admin-Key": key },
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || "통계를 불러오지 못했습니다.");
+      }
+      setData(await response.json());
+      setError("");
+    } catch (e) {
+      setError(e.message || "통계를 불러오지 못했습니다.");
+      if (e.message?.includes("인증")) {
+        sessionStorage.removeItem("dividend_admin_key");
+        setAdminKey("");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!adminKey) return;
+    loadAnalytics(adminKey);
+    const timer = setInterval(() => loadAnalytics(adminKey), 15_000);
+    return () => clearInterval(timer);
+  }, [adminKey]);
+
+  const login = (event) => {
+    event.preventDefault();
+    const key = inputKey.trim();
+    if (!key) return;
+    sessionStorage.setItem("dividend_admin_key", key);
+    setAdminKey(key);
+    setInputKey("");
+  };
+
+  const logout = () => {
+    sessionStorage.removeItem("dividend_admin_key");
+    setAdminKey("");
+    setData(null);
+  };
+
+  if (!adminKey) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center px-4">
+        <form onSubmit={login} className="w-full max-w-sm p-6 rounded-3xl border border-white/10 bg-white/5">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-400/15 flex items-center justify-center text-2xl mb-4">📊</div>
+          <h1 className="text-2xl font-black">관리자 통계</h1>
+          <p className="text-white/40 text-sm mt-2">Railway에 설정한 ADMIN_API_KEY를 입력하세요.</p>
+          <input
+            type="password"
+            value={inputKey}
+            onChange={(e) => setInputKey(e.target.value)}
+            placeholder="관리자 키"
+            autoComplete="current-password"
+            className="w-full mt-6 px-4 py-3 rounded-xl bg-black/30 border border-white/15 outline-none focus:border-emerald-400"
+          />
+          {error && <p className="text-red-300 text-sm mt-3">{error}</p>}
+          <button className="w-full mt-4 py-3 rounded-xl bg-emerald-500 font-black text-slate-950">통계 보기</button>
+          <a href="/" className="block text-center text-white/30 text-sm mt-4">사이트로 돌아가기</a>
+        </form>
+      </div>
+    );
+  }
+
+  const cards = data ? [
+    ["현재 접속", data.active_5m, "최근 5분"],
+    ["활성 방문자", data.active_30m, "최근 30분"],
+    ["페이지 조회", data.page_views_24h, "최근 24시간"],
+    ["종목 분석", data.stock_analyzes_24h, "최근 24시간"],
+    ["결과 공유", data.shares_24h, "최근 24시간"],
+    ["제휴 클릭", data.affiliate_clicks_24h, "최근 24시간"],
+  ] : [];
+  const maxViews = Math.max(1, ...(data?.minute_views || []).map((item) => item.views));
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white px-4 py-6">
+      <div className="max-w-5xl mx-auto">
+        <header className="flex items-start justify-between gap-4 mb-6">
+          <div>
+            <p className="text-emerald-300 text-xs font-bold tracking-widest">LIVE ANALYTICS</p>
+            <h1 className="text-3xl font-black mt-1">배당스크리너 관리자</h1>
+            <p className="text-white/35 text-sm mt-1">15초마다 자동 갱신 · IP 주소 저장 안 함</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => loadAnalytics()} className="px-3 py-2 rounded-xl bg-white/10 text-sm">새로고침</button>
+            <button onClick={logout} className="px-3 py-2 rounded-xl border border-white/10 text-white/50 text-sm">로그아웃</button>
+          </div>
+        </header>
+
+        {error && <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>}
+        {!data && loading ? (
+          <div className="py-24 text-center text-white/40">통계를 불러오는 중...</div>
+        ) : data && (
+          <>
+            <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {cards.map(([label, value, period]) => (
+                <div key={label} className="p-4 rounded-2xl border border-white/10 bg-white/5">
+                  <p className="text-white/40 text-xs">{label}</p>
+                  <p className="text-3xl font-black mt-2 text-emerald-300">{value}</p>
+                  <p className="text-white/20 text-[11px] mt-1">{period}</p>
+                </div>
+              ))}
+            </section>
+
+            <section className="mt-5 p-5 rounded-2xl border border-white/10 bg-white/5">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="font-black">최근 30분 조회 흐름</h2>
+                <span className="text-white/30 text-xs">30분 조회 {data.page_views_30m}회</span>
+              </div>
+              <div className="h-36 flex items-end gap-1">
+                {data.minute_views.map((item, index) => (
+                  <div key={`${item.minute}-${index}`} className="flex-1 min-w-0 group relative">
+                    <div
+                      className="w-full rounded-t bg-gradient-to-t from-emerald-600 to-cyan-300"
+                      style={{ height: `${Math.max(item.views ? 8 : 2, (item.views / maxViews) * 120)}px`, opacity: item.views ? 1 : 0.18 }}
+                    />
+                    <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-black rounded text-[10px] whitespace-nowrap">
+                      {item.minute} · {item.views}회
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <div className="grid lg:grid-cols-2 gap-5 mt-5">
+              <section className="p-5 rounded-2xl border border-white/10 bg-white/5">
+                <h2 className="font-black mb-4">많이 본 페이지 · 24시간</h2>
+                <div className="space-y-3">
+                  {data.top_pages.length === 0 && <p className="text-white/30 text-sm">아직 조회 기록이 없습니다.</p>}
+                  {data.top_pages.map((page, index) => (
+                    <div key={page.path} className="flex items-center gap-3">
+                      <span className="w-6 text-white/25 text-sm">{index + 1}</span>
+                      <span className="flex-1 truncate text-sm">{page.path}</span>
+                      <span className="text-emerald-300 font-bold">{page.views}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="p-5 rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+                <h2 className="font-black mb-4">최근 활동</h2>
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                  {data.recent_events.length === 0 && <p className="text-white/30 text-sm">아직 활동 기록이 없습니다.</p>}
+                  {data.recent_events.map((item, index) => (
+                    <div key={`${item.created_at}-${index}`} className="pb-3 border-b border-white/5 last:border-0">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-sm font-bold">{EVENT_LABELS[item.event_name] || item.event_name}</span>
+                        <span className="text-white/25 text-[11px] shrink-0">{item.created_at.slice(5)}</span>
+                      </div>
+                      <p className="text-white/35 text-xs mt-1 truncate">{item.path}{item.referrer ? ` · ${item.referrer}` : ""}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            <p className="text-center text-white/20 text-xs mt-6">마지막 갱신 {data.updated_at} {loading ? "· 갱신 중" : ""}</p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const isAdminPage = window.location.pathname.startsWith("/admin");
   const [tab,     setTab]     = useState("screener");
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState(null);
@@ -607,6 +830,7 @@ export default function App() {
       setResult(data);
       if (updateUrl && window.location.pathname !== `/stock/${t}`) {
         window.history.pushState({ ticker: t }, "", `/stock/${t}`);
+        sendInternalEvent("page_view", { ticker: t });
       }
       trackEvent("stock_analyze", { ticker: t, stock_name: data.name, score: data.total_score });
     } catch (e) {
@@ -617,8 +841,10 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (isAdminPage) return;
     const syncFromLocation = () => {
       const ticker = getTickerFromPath();
+      sendInternalEvent("page_view", { ticker });
       if (ticker) analyze(ticker, { updateUrl: false });
       else {
         setResult(null);
@@ -646,6 +872,8 @@ export default function App() {
     else { navigator.clipboard?.writeText(`${text}\n\n🔗 ${url}`); alert("📋 클립보드에 복사됐습니다!"); }
   };
 
+  if (isAdminPage) return <AdminDashboard />;
+
   const grade = result?.grade?.grade;
   const cfg   = GRADE_CONFIG[grade] || GRADE_CONFIG["D"];
   const km    = result?.key_metrics || {};
@@ -654,7 +882,10 @@ export default function App() {
   const showRanking = () => {
     setTab("ranking");
     setResult(null);
-    if (window.location.pathname !== "/") window.history.pushState({}, "", "/");
+    if (window.location.pathname !== "/") {
+      window.history.pushState({}, "", "/");
+      sendInternalEvent("page_view");
+    }
     updateSeo();
   };
 
@@ -789,6 +1020,10 @@ export default function App() {
         {tab === "ranking" && (
           <RankingPage onSelectTicker={(code) => analyze(code)} />
         )}
+
+        <p className="text-white/15 text-[10px] text-center mt-8 leading-relaxed">
+          서비스 개선을 위해 개인 식별정보 없이 익명 이용 통계를 수집합니다.
+        </p>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-50"

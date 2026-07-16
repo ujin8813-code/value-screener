@@ -58,6 +58,13 @@ function stockHtml(template, stock) {
   );
 }
 
+function adminHtml(template) {
+  let html = template.replace(/<title>.*?<\/title>/is, "<title>관리자 통계 | 배당스크리너</title>");
+  html = replaceMeta(html, "name", "description", "배당스크리너 관리자용 실시간 이용 통계");
+  html = html.replace(/<link\s+rel=["']canonical["'][^>]*>/i, `<link rel="canonical" href="${SITE_URL}/admin" />`);
+  return html.replace("</head>", '    <meta name="robots" content="noindex,nofollow" />\n  </head>');
+}
+
 const template = await readFile(path.join(DIST_DIR, "index.html"), "utf8");
 const stocks = await fetchStocks();
 
@@ -66,6 +73,10 @@ await Promise.all(stocks.map(async (stock) => {
   await mkdir(directory, { recursive: true });
   await writeFile(path.join(directory, "index.html"), stockHtml(template, stock), "utf8");
 }));
+
+const adminDirectory = path.join(DIST_DIR, "admin");
+await mkdir(adminDirectory, { recursive: true });
+await writeFile(path.join(adminDirectory, "index.html"), adminHtml(template), "utf8");
 
 const lastmod = new Date().toISOString().slice(0, 10);
 const urls = [

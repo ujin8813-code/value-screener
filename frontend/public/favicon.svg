@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="배당스크리너">
+  <defs>
+    <linearGradient id="bg" x1="24" y1="20" x2="168" y2="172" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="line" x1="42" y1="132" x2="150" y2="55" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#34d399"/>
+      <stop offset="1" stop-color="#67e8f9"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="42" fill="url(#bg)"/>
+  <path d="M43 135V58M43 135H151" fill="none" stroke="#334155" stroke-width="10" stroke-linecap="round"/>
+  <path d="M49 120L76 96L98 106L143 61" fill="none" stroke="url(#line)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M123 61H143V81" fill="none" stroke="#67e8f9" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

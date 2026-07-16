@@ -1,5 +1,6 @@
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import yfinance as yf
 import re
@@ -8,7 +9,10 @@ import psycopg2
 import os
 import asyncio
 import secrets
+import hashlib
 from datetime import datetime
+from typing import Literal
+from zoneinfo import ZoneInfo
 import tweepy
 
 app = FastAPI(title="배당 스크리너 API", version="4.5.0")
@@ -33,6 +37,14 @@ X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET")
 KR_NAME_MAP: dict = {}
 KR_STOCKS: list[dict] = []
 SCAN_LOCK = asyncio.Lock()
+
+
+class AnalyticsEvent(BaseModel):
+    visitor_id: str = Field(min_length=8, max_length=128)
+    event_name: Literal["page_view", "stock_analyze", "stock_share", "affiliate_click"]
+    path: str = Field(default="/", min_length=1, max_length=300)
+    ticker: str | None = Field(default=None, pattern=r"^\d{6}$")
+    referrer: str | None = Field(default=None, max_length=300)
 
 def load_kr_names():
     global KR_NAME_MAP, KR_STOCKS
@@ -127,6 +139,20 @@ def init_db():
                 total_qualified INTEGER
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS analytics_events (
+                id BIGSERIAL PRIMARY KEY,
+                visitor_hash CHAR(64) NOT NULL,
+                event_name VARCHAR(32) NOT NULL,
+                path VARCHAR(300) NOT NULL,
+                ticker VARCHAR(10),
+                referrer VARCHAR(300),
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_analytics_events_created_at ON analytics_events (created_at DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_analytics_events_name_created_at ON analytics_events (event_name, created_at DESC)")
+        cur.execute("DELETE FROM analytics_events WHERE created_at < NOW() - INTERVAL '90 days'")
         conn.commit()
         cur.close()
         conn.close()
@@ -840,6 +866,121 @@ async def get_stocks(market: str = "KOSPI"):
         stocks = [stock for stock in KR_STOCKS if stock["market"] == normalized_market]
 
     return {"market": normalized_market, "count": len(stocks), "stocks": stocks}
+
+
+@app.post("/analytics/event")
+async def record_analytics_event(event: AnalyticsEvent):
+    if not ADMIN_API_KEY:
+        raise HTTPException(status_code=503, detail="분석 설정이 완료되지 않았습니다.")
+
+    visitor_hash = hashlib.sha256(
+        f"{ADMIN_API_KEY}:{event.visitor_id}".encode("utf-8")
+    ).hexdigest()
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO analytics_events
+                (visitor_hash, event_name, path, ticker, referrer)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (
+            visitor_hash,
+            event.event_name,
+            event.path,
+            event.ticker,
+            event.referrer,
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"이벤트 저장 실패: {str(e)}")
+
+
+@app.get("/admin/analytics", dependencies=[Depends(require_admin)])
+async def get_admin_analytics():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= NOW() - INTERVAL '5 minutes'),
+                COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= NOW() - INTERVAL '30 minutes'),
+                COUNT(*) FILTER (WHERE event_name = 'page_view' AND created_at >= NOW() - INTERVAL '30 minutes'),
+                COUNT(*) FILTER (WHERE event_name = 'page_view' AND created_at >= NOW() - INTERVAL '24 hours'),
+                COUNT(*) FILTER (WHERE event_name = 'stock_analyze' AND created_at >= NOW() - INTERVAL '24 hours'),
+                COUNT(*) FILTER (WHERE event_name = 'stock_share' AND created_at >= NOW() - INTERVAL '24 hours'),
+                COUNT(*) FILTER (WHERE event_name = 'affiliate_click' AND created_at >= NOW() - INTERVAL '24 hours')
+            FROM analytics_events
+        """)
+        totals = cur.fetchone()
+
+        cur.execute("""
+            SELECT path, COUNT(*) AS views
+            FROM analytics_events
+            WHERE event_name = 'page_view'
+              AND created_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY path
+            ORDER BY views DESC, path ASC
+            LIMIT 10
+        """)
+        top_pages = [{"path": row[0], "views": row[1]} for row in cur.fetchall()]
+
+        cur.execute("""
+            SELECT event_name, path, ticker, referrer,
+                   TO_CHAR(created_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD HH24:MI:SS')
+            FROM analytics_events
+            ORDER BY created_at DESC
+            LIMIT 30
+        """)
+        recent_events = [
+            {
+                "event_name": row[0],
+                "path": row[1],
+                "ticker": row[2],
+                "referrer": row[3],
+                "created_at": row[4],
+            }
+            for row in cur.fetchall()
+        ]
+
+        cur.execute("""
+            WITH minutes AS (
+                SELECT generate_series(
+                    date_trunc('minute', NOW()) - INTERVAL '29 minutes',
+                    date_trunc('minute', NOW()),
+                    INTERVAL '1 minute'
+                ) AS minute
+            )
+            SELECT TO_CHAR(m.minute AT TIME ZONE 'Asia/Seoul', 'HH24:MI'),
+                   COUNT(e.id) FILTER (WHERE e.event_name = 'page_view')
+            FROM minutes m
+            LEFT JOIN analytics_events e
+              ON e.created_at >= m.minute
+             AND e.created_at < m.minute + INTERVAL '1 minute'
+            GROUP BY m.minute
+            ORDER BY m.minute
+        """)
+        minute_views = [{"minute": row[0], "views": row[1]} for row in cur.fetchall()]
+
+        cur.close()
+        conn.close()
+        return {
+            "updated_at": datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S"),
+            "active_5m": totals[0] or 0,
+            "active_30m": totals[1] or 0,
+            "page_views_30m": totals[2] or 0,
+            "page_views_24h": totals[3] or 0,
+            "stock_analyzes_24h": totals[4] or 0,
+            "shares_24h": totals[5] or 0,
+            "affiliate_clicks_24h": totals[6] or 0,
+            "top_pages": top_pages,
+            "recent_events": recent_events,
+            "minute_views": minute_views,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"통계 조회 실패: {str(e)}")
 
 
 @app.post("/reset-rankings", dependencies=[Depends(require_admin)])

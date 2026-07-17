@@ -177,7 +177,14 @@ def detect_quarterly_dividend(stock) -> bool:
 
 
 def calc_dividend_growth(stock) -> dict:
-    result = {"consecutive_years": 0, "growth_rate": None, "has_dividend": False}
+    result = {
+        "consecutive_years": 0,
+        "growth_rate": None,
+        "has_dividend": False,
+        "years_count": 0,
+        "latest_change_rate": None,
+        "latest_cut": False,
+    }
     try:
         dividends = stock.dividends
         if dividends is None or len(dividends) == 0:
@@ -186,14 +193,38 @@ def calc_dividend_growth(stock) -> dict:
         result["has_dividend"] = True
 
         div_by_year = {}
+        payments_by_year = {}
         for date, amount in dividends.items():
             year = date.year
             div_by_year[year] = div_by_year.get(year, 0) + float(amount)
+            payments_by_year[year] = payments_by_year.get(year, 0) + 1
 
         if len(div_by_year) < 2:
+            result["years_count"] = len(div_by_year)
             return result
 
         years = sorted(div_by_year.keys(), reverse=True)
+
+        # 분기배당 종목은 아직 끝나지 않은 올해 누적액을 전년도 전체액과
+        # 비교하면 배당 삭감으로 오판할 수 있어 지급 횟수가 덜 찬 올해는 제외한다.
+        current_year = datetime.now(ZoneInfo("Asia/Seoul")).year
+        if (
+            len(years) >= 2
+            and years[0] == current_year
+            and payments_by_year[years[0]] < payments_by_year[years[1]]
+        ):
+            years = years[1:]
+
+        result["years_count"] = len(years)
+        if len(years) < 2:
+            return result
+
+        latest = div_by_year[years[0]]
+        previous = div_by_year[years[1]]
+        if previous > 0:
+            latest_change = ((latest / previous) - 1) * 100
+            result["latest_change_rate"] = round(latest_change, 2)
+            result["latest_cut"] = latest_change < -0.1
 
         consecutive = 0
         for i in range(len(years) - 1):
@@ -427,8 +458,11 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
         details["dividend_freq"] = "연 1회 배당"
 
     # 3. 배당 연속인상 (10점) — 조건 완화 (5년+ 만점)
-    consecutive  = div_history.get("consecutive_years", 0)
-    has_dividend = div_history.get("has_dividend", False)
+    consecutive       = div_history.get("consecutive_years", 0)
+    has_dividend      = div_history.get("has_dividend", False)
+    years_count       = div_history.get("years_count", 0)
+    latest_cut        = div_history.get("latest_cut", False)
+    latest_change     = div_history.get("latest_change_rate")
     if consecutive >= 5:
         scores["dividend_growth"] = 10
         details["dividend_growth"] = f"5년+ 연속 인상 ✅ ({consecutive}년)"
@@ -438,9 +472,15 @@ def calc_category_b(info: dict, naver: dict, ticker_code: str, is_quarterly: boo
     elif consecutive >= 1:
         scores["dividend_growth"] = 5
         details["dividend_growth"] = f"배당 인상 중 ({consecutive}년)"
-    elif has_dividend:
+    elif latest_cut:
+        scores["dividend_growth"] = 0
+        details["dividend_growth"] = f"최근 배당 감소 {latest_change:.1f}% ⚠️"
+    elif has_dividend and years_count >= 2:
         scores["dividend_growth"] = 3
-        details["dividend_growth"] = "배당 유지 (삭감 없음)"
+        details["dividend_growth"] = "최근 배당 유지"
+    elif has_dividend:
+        scores["dividend_growth"] = 2
+        details["dividend_growth"] = "배당 이력 부족"
     else:
         scores["dividend_growth"] = 0
         details["dividend_growth"] = "배당 없음"
@@ -844,10 +884,12 @@ def health():
 async def search(q: str):
     if not q or len(q) < 1:
         return {"results": []}
-    q = q.strip()
+    # 영문 종목명도 사용자가 입력한 대/소문자와 관계없이 찾는다.
+    # casefold는 lower보다 유니코드 문자열 비교에 안전하다.
+    q = q.strip().casefold()
     results = []
     for code, name in KR_NAME_MAP.items():
-        if q in name or q in code:
+        if q in name.casefold() or q in code.casefold():
             results.append({"ticker": code, "name": name})
         if len(results) >= 10:
             break
@@ -925,7 +967,18 @@ async def get_admin_analytics():
             ORDER BY views DESC, path ASC
             LIMIT 10
         """)
-        top_pages = [{"path": row[0], "views": row[1]} for row in cur.fetchall()]
+        top_pages = []
+        for path, views in cur.fetchall():
+            ticker_match = re.fullmatch(r"/stock/(\d{6})/?", path or "")
+            ticker = ticker_match.group(1) if ticker_match else None
+            stock_name = KR_NAME_MAP.get(ticker, "") if ticker else ""
+            top_pages.append({
+                "path": path,
+                "views": views,
+                "ticker": ticker,
+                "stock_name": stock_name or None,
+                "label": f"{stock_name} ({ticker})" if stock_name else ("메인 화면" if path == "/" else path),
+            })
 
         cur.execute("""
             SELECT event_name, path, ticker, referrer,
@@ -939,6 +992,7 @@ async def get_admin_analytics():
                 "event_name": row[0],
                 "path": row[1],
                 "ticker": row[2],
+                "stock_name": KR_NAME_MAP.get(row[2]) if row[2] else None,
                 "referrer": row[3],
                 "created_at": row[4],
             }

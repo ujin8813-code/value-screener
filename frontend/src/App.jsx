@@ -288,6 +288,40 @@ function MetricCard({ label, value, unit = "", highlight = false, status = null 
   );
 }
 
+function DividendQualityCard({ metrics }) {
+  const checks = [
+    { label: "배당 지속성", value: metrics.dividend_growth || "데이터 없음" },
+    { label: "배당성향", value: metrics.payout_ratio || "데이터 없음" },
+    { label: "배당 성장", value: metrics.div_growth_rate || "데이터 없음" },
+  ];
+  const hasWarning = checks.some(({ value }) => /감소|과다|없음|위험|부족/.test(value));
+
+  return (
+    <div className={`p-5 rounded-2xl border ${hasWarning ? "border-amber-400/30 bg-amber-500/5" : "border-emerald-400/25 bg-emerald-500/5"}`}>
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <p className="text-white font-black text-base">배당 신뢰도 체크</p>
+          <p className="text-white/35 text-xs mt-1">배당률만 높지 않은지 함께 확인하세요</p>
+        </div>
+        <span className={`text-xs px-2.5 py-1 rounded-full shrink-0 ${hasWarning ? "bg-amber-400/15 text-amber-300" : "bg-emerald-400/15 text-emerald-300"}`}>
+          {hasWarning ? "확인 필요" : "양호"}
+        </span>
+      </div>
+      <div className="space-y-2.5">
+        {checks.map(({ label, value }) => (
+          <div key={label} className="flex items-start justify-between gap-4 p-3 rounded-xl bg-black/15 border border-white/5">
+            <span className="text-white/40 text-xs shrink-0">{label}</span>
+            <span className="text-white/85 text-xs font-bold text-right leading-relaxed">{value}</span>
+          </div>
+        ))}
+      </div>
+      <p className="text-white/20 text-[10px] leading-relaxed mt-3">
+        최근 공개 배당 데이터를 단순 분석한 값이며, 향후 배당금 지급이나 인상을 보장하지 않습니다.
+      </p>
+    </div>
+  );
+}
+
 function TradingViewAffiliate({ compact = false }) {
   return (
     <div className={`rounded-2xl border border-blue-400/30 bg-gradient-to-br from-blue-500/15 to-violet-500/10 ${compact ? "p-4" : "p-5"}`}>
@@ -323,17 +357,31 @@ function DividendSimulator({ dividendYield }) {
   const [results,   setResults]   = useState([]);
   const [noReinvestResults, setNoReinvestResults] = useState([]);
 
+  const taxRate = 0.154;
+  const grossAnnualDividend = principal * (dividendYield / 100);
+  const estimatedTax = grossAnnualDividend * taxRate;
+  const netAnnualDividend = grossAnnualDividend - estimatedTax;
+  const netMonthlyDividend = netAnnualDividend / 12;
+  const money = (value) => `${Math.round(value).toLocaleString("ko-KR")}원`;
+
   useEffect(() => {
-    const rate = dividendYield / 100;
+    const grossRate = dividendYield / 100;
+    const netRate = grossRate * (1 - taxRate);
     let cur = principal, arr = [];
     for (let y = 1; y <= years; y++) {
-      const div = cur * rate; cur += div;
-      arr.push({ year: y, total: Math.round(cur), div: Math.round(div) });
+      const divGross = cur * grossRate;
+      const tax = divGross * taxRate;
+      const divNet = cur * netRate;
+      cur += divNet;
+      arr.push({ year: y, total: Math.round(cur), div: Math.round(divNet), divGross: Math.round(divGross), tax: Math.round(tax) });
     }
     setResults(arr);
     let arr2 = [];
     for (let y = 1; y <= years; y++) {
-      arr2.push({ year: y, total: Math.round(principal + principal * rate * y), div: Math.round(principal * rate) });
+      const divGross = principal * grossRate;
+      const tax = divGross * taxRate;
+      const divNet = principal * netRate;
+      arr2.push({ year: y, total: Math.round(principal + divNet * y), div: Math.round(divNet), divGross: Math.round(divGross), tax: Math.round(tax) });
     }
     setNoReinvestResults(arr2);
   }, [principal, years, dividendYield]);
@@ -355,14 +403,44 @@ function DividendSimulator({ dividendYield }) {
   return (
     <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-xl">❄️</span>
-        <h3 className="text-white font-bold text-base">배당 눈덩이 시뮬레이터</h3>
+        <span className="text-xl">💵</span>
+        <h3 className="text-white font-bold text-base">내 배당금 계산기</h3>
         <span className="ml-auto text-xs px-2 py-1 rounded-full bg-white/10 text-white/40">연 {dividendYield.toFixed(1)}%</span>
       </div>
+
+      <div className="mb-4 p-4 rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-500/15 to-cyan-500/5">
+        <p className="text-emerald-200/60 text-xs">1년 예상 세후 배당금</p>
+        <p className="text-emerald-300 text-3xl font-black mt-1">{money(netAnnualDividend)}</p>
+        <p className="text-white/35 text-xs mt-1">월평균으로 환산하면 약 {money(netMonthlyDividend)}</p>
+        <div className="grid grid-cols-2 gap-2 mt-4">
+          <div className="p-3 rounded-xl bg-black/15 border border-white/5">
+            <p className="text-white/30 text-[11px]">세전 연 배당</p>
+            <p className="text-white font-bold text-sm mt-1">{money(grossAnnualDividend)}</p>
+          </div>
+          <div className="p-3 rounded-xl bg-black/15 border border-white/5">
+            <p className="text-white/30 text-[11px]">예상 원천징수 15.4%</p>
+            <p className="text-amber-300 font-bold text-sm mt-1">-{money(estimatedTax)}</p>
+          </div>
+        </div>
+      </div>
+
       <div className="mb-4">
         <div className="flex justify-between mb-1">
           <label className="text-white/40 text-xs">초기 투자금</label>
           <span className="text-white text-xs font-bold">{(principal/10000).toLocaleString()}만원</span>
+        </div>
+        <div className="grid grid-cols-4 gap-1.5 mb-3">
+          {[
+            [10000000, "1천만"],
+            [30000000, "3천만"],
+            [50000000, "5천만"],
+            [100000000, "1억원"],
+          ].map(([amount, label]) => (
+            <button key={amount} onClick={() => setPrincipal(amount)}
+              className={`py-2 rounded-lg text-xs font-bold border transition-all ${principal === amount ? "border-emerald-400 bg-emerald-400/15 text-emerald-300" : "border-white/10 bg-white/5 text-white/40"}`}>
+              {label}
+            </button>
+          ))}
         </div>
         <input type="range" min="1000000" max="100000000" step="1000000"
           value={principal} onChange={e => setPrincipal(Number(e.target.value))} className="w-full accent-blue-400"/>
@@ -382,7 +460,7 @@ function DividendSimulator({ dividendYield }) {
           className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${reinvest ? "bg-emerald-500" : "bg-white/20"}`}>
           <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all duration-300 ${reinvest ? "left-7" : "left-1"}`}/>
         </button>
-        <span className="text-white/50 text-sm">배당금 재투자 (복리)</span>
+        <span className="text-white/50 text-sm">세후 배당금 재투자 (복리)</span>
       </div>
       <div className="flex items-end gap-1.5 mb-2" style={{ height: 160 }}>
         {filteredResults.map((r, i) => {
@@ -426,7 +504,7 @@ function DividendSimulator({ dividendYield }) {
           <p className="text-white font-black text-base">{Math.round(finalValue/10000).toLocaleString()}만</p>
         </div>
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-center">
-          <p className="text-emerald-300/60 text-xs mb-1">총 배당</p>
+          <p className="text-emerald-300/60 text-xs mb-1">세후 총배당</p>
           <p className="text-emerald-300 font-black text-base">+{Math.round(totalDiv/10000).toLocaleString()}만</p>
         </div>
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3 text-center">
@@ -434,6 +512,9 @@ function DividendSimulator({ dividendYield }) {
           <p className="text-blue-300 font-black text-base">+{gainPct}%</p>
         </div>
       </div>
+      <p className="text-white/25 text-[10px] leading-relaxed mt-3">
+        국내 일반 과세계좌의 배당소득 원천징수 15.4%를 단순 적용한 예상치입니다. 금융소득 종합과세, ISA·연금계좌 등 개인별 세무 조건은 반영하지 않았으며 주가와 배당금은 변동될 수 있습니다.
+      </p>
       <div className="mt-4">
         <TradingViewAffiliate compact />
       </div>
@@ -600,10 +681,12 @@ function SearchInput({ onAnalyze }) {
     <div ref={wrapperRef} className="relative mb-2">
       <input
         type="text"
-        placeholder="종목명 또는 코드 (예: 삼성전자, 005930)"
+        placeholder="종목명 또는 코드 (예: 삼성전자, isc, 005930)"
         value={query}
         onChange={e => { setQuery(e.target.value); setShowDrop(true); }}
         onKeyDown={e => { if (e.key === "Enter" && isCode && query.length === 6) onAnalyze(query); }}
+        autoCapitalize="none"
+        autoCorrect="off"
         className="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white text-base placeholder-white/20 focus:outline-none focus:border-blue-400 transition-all"
       />
       <button
@@ -780,7 +863,10 @@ function AdminDashboard() {
                   {data.top_pages.map((page, index) => (
                     <div key={page.path} className="flex items-center gap-3">
                       <span className="w-6 text-white/25 text-sm">{index + 1}</span>
-                      <span className="flex-1 truncate text-sm">{page.path}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-sm font-medium">{page.label || page.path}</p>
+                        {page.label && page.label !== page.path && <p className="truncate text-white/25 text-[10px] mt-0.5">{page.path}</p>}
+                      </div>
                       <span className="text-emerald-300 font-bold">{page.views}</span>
                     </div>
                   ))}
@@ -797,7 +883,10 @@ function AdminDashboard() {
                         <span className="text-sm font-bold">{EVENT_LABELS[item.event_name] || item.event_name}</span>
                         <span className="text-white/25 text-[11px] shrink-0">{item.created_at.slice(5)}</span>
                       </div>
-                      <p className="text-white/35 text-xs mt-1 truncate">{item.path}{item.referrer ? ` · ${item.referrer}` : ""}</p>
+                      <p className="text-white/35 text-xs mt-1 truncate">
+                        {item.stock_name ? `${item.stock_name} (${item.ticker})` : item.path}
+                        {item.referrer ? ` · ${item.referrer}` : ""}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -993,6 +1082,8 @@ export default function App() {
                   )}
                   <p className="text-white/20 text-xs text-right mt-1">📊 네이버 증권 기준</p>
                 </div>
+
+                <DividendQualityCard metrics={km} />
 
                 <TradingViewAffiliate />
 
